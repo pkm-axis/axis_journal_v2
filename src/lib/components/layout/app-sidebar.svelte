@@ -10,13 +10,8 @@
 	import Settings2Icon from "@lucide/svelte/icons/settings-2";
 	import SquareTerminalIcon from "@lucide/svelte/icons/square-terminal";
 
-	// This is sample data.
+	// Sample data (nav + accounts); user comes from auth via props.
 	const data = {
-		user: {
-			name: "shadcn",
-			email: "m@example.com",
-			avatar: "/avatars/shadcn.jpg",
-		},
 		accounts: [
 			{
 				name: "Apex Eval",
@@ -151,10 +146,13 @@
 	import type { ComponentProps } from "svelte";
 
 	let {
+		user,
 		ref = $bindable(null),
 		collapsible = "icon",
 		...restProps
-	}: ComponentProps<typeof Sidebar.Root> = $props();
+	}: ComponentProps<typeof Sidebar.Root> & {
+		user: { name: string; email: string; avatar: string };
+	} = $props();
 </script>
 
 <Sidebar.Root bind:ref {collapsible} {...restProps}>
@@ -166,7 +164,7 @@
 		<NavAnalytics analytics={data.analytics} />
 	</Sidebar.Content>
 	<Sidebar.Footer>
-		<NavUser user={data.user} />
+		<NavUser {user} />
 	</Sidebar.Footer>
 	<Sidebar.Rail />
 </Sidebar.Root>
