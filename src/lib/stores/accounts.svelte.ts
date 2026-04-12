@@ -1,15 +1,17 @@
 import { getAuthToken } from "$lib/utils/auth-token";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-interface Account {
+export interface Account {
+    id: string;
     name: string;
     account_type: string;
-    logo?: any
+    logo?: unknown;
 }
 
 function createAccountStore() {
     let loading = $state(false);
     let accounts = $state<Account[]>([]);
+    let activeAccountId = $state<string | null>(null);
 
     return {
         get loading() {
@@ -18,8 +20,15 @@ function createAccountStore() {
         get accounts() {
             return accounts;
         },
+        get activeAccountId() {
+            return activeAccountId;
+        },
+        setActiveAccountId: (id: string | null) => {
+            activeAccountId = id;
+        },
         clear: () => {
             accounts = [];
+            activeAccountId = null;
         },
         getAllAccounts: async(supabase: SupabaseClient) => {
             try {

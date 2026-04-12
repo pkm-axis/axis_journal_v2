@@ -7,6 +7,7 @@
 	import { supabase } from "$lib/supabase/client";
 	import type { Session } from "@supabase/supabase-js";
     import { accountStore } from "$lib/stores/accounts.svelte";
+    import { tradeStore } from "$lib/stores/trades.svelte";
 
 	let { children } = $props();
 
@@ -35,7 +36,8 @@
 
                 // Detects user switch
                 if (currentUserId && currentUserId !== newUserId) {
-                    accountStore.clear(); // reset all user-scoped stores
+                    accountStore.clear();
+                    tradeStore.clear();
                 }
 
                 currentUserId = newUserId;
@@ -60,6 +62,7 @@
         if (!session?.user?.id) return;
 
         accountStore.clear();
+        tradeStore.clear();
         accountStore.getAllAccounts(supabase);
     });
 

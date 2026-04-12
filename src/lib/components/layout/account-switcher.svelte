@@ -9,28 +9,31 @@
 	import PlusIcon from "@lucide/svelte/icons/plus";
 	import Input from "../ui/input/input.svelte";
     import { supabase } from '$lib/supabase/client'
-    import { accountStore } from "$lib/stores/accounts.svelte";
+    import { accountStore, type Account } from "$lib/stores/accounts.svelte";
 
     const sidebar = useSidebar();
-
-    type Account = {
-        name: string,
-        account_type: string
-    }
 
 	let props = $props<{
         accounts: Account[];
     }>();
 
     let accountList = $derived(props.accounts ?? []);
-	
+
+	let activeAccount = $state<Account | null>(null);
+
     $effect(() => {
-        if (!activeAccount && accountList.length > 0) {
+        if (accountList.length === 0) {
+            activeAccount = null;
+            return;
+        }
+        if (!activeAccount || !accountList.some((a: Account) => a.id === activeAccount!.id)) {
             activeAccount = accountList[0];
         }
     });
 
-	let activeAccount = $state<Account | null>(null);
+    $effect(() => {
+        accountStore.setActiveAccountId(activeAccount?.id ?? null);
+    });
 
     let accountName: string = $state('');
     let accountType: string = $state('prop firm');
@@ -112,7 +115,7 @@
 				sideOffset={4}
 			>
 				<DropdownMenu.Label class="text-muted-foreground text-xs">Accounts</DropdownMenu.Label>
-				{#each accountList as account, index (account.name)}
+				{#each accountList as account (account.id)}
 					<DropdownMenu.Item onSelect={() => (activeAccount = account)} class="gap-2 p-2 cursor-pointer">
 						{account.name}
 					</DropdownMenu.Item>

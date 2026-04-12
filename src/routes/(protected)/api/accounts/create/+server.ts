@@ -1,8 +1,7 @@
 import { json } from '@sveltejs/kit'
 
-export async function POST({ request, locals }) {
-    const supabase = locals.supabase
-    const { session, user } = await locals.safeGetSession()
+export async function POST({ request, locals: { supabase, safeGetSession } }) {
+    const { session, user } = await safeGetSession()
 
     if (!session || !user) {
         return json({ error: 'Unauthorized' }, { status: 401 })
