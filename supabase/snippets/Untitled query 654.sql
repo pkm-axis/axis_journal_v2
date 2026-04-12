@@ -1,0 +1,1 @@
+select id, user_id, name from trading.accounts;

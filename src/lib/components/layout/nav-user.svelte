@@ -25,7 +25,7 @@
 
 	async function handleLogout() {
 		await supabase.auth.signOut();
-		await goto(resolve("/login-04"), { replaceState: true });
+		await goto(resolve("/login"), { replaceState: true });
 	}
 </script>
 

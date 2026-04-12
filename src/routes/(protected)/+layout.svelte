@@ -5,55 +5,49 @@
 	import AppSidebar from "$lib/components/layout/app-sidebar.svelte";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import { supabase } from "$lib/supabase/client";
-	import { ensureProfile } from "$lib/auth/ensure-profile";
 	import type { Session } from "@supabase/supabase-js";
+    import { accountStore } from "$lib/stores/accounts.svelte";
 
 	let { children } = $props();
 
+    let currentUserId: string | null = null;
 	let session = $state<Session | null>(null);
 	let ready = $state(false);
 
-	const sidebarUser = $derived.by(() => {
-		const u = session?.user;
-		if (!u) {
-			return { name: "", email: "", avatar: "" };
-		}
-		const email = u.email ?? "";
-		const meta = u.user_metadata as { full_name?: string; avatar_url?: string } | undefined;
-		const name =
-			meta?.full_name ??
-			(email ? email.split("@")[0] : "User");
-		return {
-			name,
-			email,
-			avatar: meta?.avatar_url ?? "",
-		};
-	});
-
-	onMount(() => {
+    onMount(() => {
 		const holder: { subscription?: { unsubscribe: () => void } } = {};
 
 		void (async () => {
 			const {
 				data: { session: initial },
 			} = await supabase.auth.getSession();
+            
 			if (!initial) {
-				await goto(resolve("/login-04"), { replaceState: true });
+				await goto(resolve("/login"), { replaceState: true });
 				return;
 			}
 			session = initial;
-			await ensureProfile(initial.user.id);
+            currentUserId = initial.user.id;
 			ready = true;
 
 			const { data } = supabase.auth.onAuthStateChange(async (_event, next) => {
+                const newUserId = next?.user?.id ?? null;
+
+                // Detects user switch
+                if (currentUserId && currentUserId !== newUserId) {
+                    accountStore.clear(); // reset all user-scoped stores
+                }
+
+                currentUserId = newUserId;
+
 				if (!next) {
 					session = null;
 					ready = false;
-					await goto(resolve("/login-04"), { replaceState: true });
+					await goto(resolve("/login"), { replaceState: true });
 					return;
 				}
+
 				session = next;
-				await ensureProfile(next.user.id);
 				ready = true;
 			});
 			holder.subscription = data.subscription;
@@ -61,6 +55,40 @@
 
 		return () => holder.subscription?.unsubscribe();
 	});
+
+    $effect(() => {
+        if (!session?.user?.id) return;
+
+        accountStore.clear();
+        accountStore.getAllAccounts(supabase);
+    });
+
+	const sidebarUser = $derived.by(() => {
+		const u = session?.user;
+
+		if (!u) {
+			return { 
+                id: "", 
+                name: "", 
+                email: "", 
+                avatar: "" 
+            };
+		}
+
+        const id = u.id;
+		const email = u.email ?? "";
+		const meta = u.user_metadata as { full_name?: string; avatar_url?: string } | undefined;
+		const name = meta?.full_name ?? (email ? email.split("@")[0] : "User");
+		return {
+            id,
+			name,
+			email,
+			avatar: meta?.avatar_url ?? "",
+		};
+	});
+
+	
+        
 </script>
 
 {#if !ready}

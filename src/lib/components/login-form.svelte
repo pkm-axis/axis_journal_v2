@@ -15,7 +15,6 @@
 	import { cn } from "$lib/utils.js";
 	import type { HTMLAttributes } from "svelte/elements";
 	import { supabase } from "$lib/supabase/client";
-	import { ensureProfile } from "$lib/auth/ensure-profile";
 
 	let { class: className, ...restProps }: HTMLAttributes<HTMLDivElement> = $props();
 
@@ -48,9 +47,6 @@
 		if (error) {
 			errorMessage = error.message;
 			return;
-		}
-		if (data.user) {
-			await ensureProfile(data.user.id);
 		}
 		await goto(resolve("/dashboard"), { replaceState: true });
 	}

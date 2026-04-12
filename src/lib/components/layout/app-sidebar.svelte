@@ -1,34 +1,23 @@
-<script lang="ts" module>
-	import AudioWaveformIcon from "@lucide/svelte/icons/audio-waveform";
+<script lang="ts">
+	import NavMain from "./nav-main.svelte";
+	import NavAnalytics from "./nav-analytics.svelte";
+	import NavUser from "./nav-user.svelte";
+	import AccountSwitcher from "./account-switcher.svelte";
+	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
+	import { type ComponentProps } from "svelte";
 	import BookOpenIcon from "@lucide/svelte/icons/book-open";
-	import BotIcon from "@lucide/svelte/icons/bot";
 	import ChartPieIcon from "@lucide/svelte/icons/chart-pie";
-	import CommandIcon from "@lucide/svelte/icons/command";
 	import FrameIcon from "@lucide/svelte/icons/frame";
-	import GalleryVerticalEndIcon from "@lucide/svelte/icons/gallery-vertical-end";
 	import MapIcon from "@lucide/svelte/icons/map";
 	import Settings2Icon from "@lucide/svelte/icons/settings-2";
 	import SquareTerminalIcon from "@lucide/svelte/icons/square-terminal";
+    import { accountStore } from "$lib/stores/accounts.svelte";
 
-	// Sample data (nav + accounts); user comes from auth via props.
-	const data = {
-		accounts: [
-			{
-				name: "Apex Eval",
-				logo: GalleryVerticalEndIcon,
-				type: "Prop Firm",
-			},
-			{
-				name: "FundedNext Eval",
-				logo: AudioWaveformIcon,
-				type: "Prop Firm",
-			},
-			{
-				name: "FundedNext Eval 2",
-				logo: CommandIcon,
-				type: "Prop Firm",
-			},
-		],
+    let { user, ref = $bindable(null), collapsible = "icon", ...restProps }: ComponentProps<typeof Sidebar.Root> & {
+		user: { id: string; name: string; email: string; avatar: string };
+	} = $props();
+
+    const sidebarData = {
 		navMain: [
 			{
 				title: "Overview",
@@ -135,33 +124,16 @@
 			},
 		],
 	};
-</script>
 
-<script lang="ts">
-	import NavMain from "./nav-main.svelte";
-	import NavAnalytics from "./nav-analytics.svelte";
-	import NavUser from "./nav-user.svelte";
-	import AccountSwitcher from "./account-switcher.svelte";
-	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
-	import type { ComponentProps } from "svelte";
-
-	let {
-		user,
-		ref = $bindable(null),
-		collapsible = "icon",
-		...restProps
-	}: ComponentProps<typeof Sidebar.Root> & {
-		user: { name: string; email: string; avatar: string };
-	} = $props();
 </script>
 
 <Sidebar.Root bind:ref {collapsible} {...restProps}>
 	<Sidebar.Header>
-		<AccountSwitcher accounts={data.accounts} />
+		<AccountSwitcher accounts={accountStore.accounts} />
 	</Sidebar.Header>
 	<Sidebar.Content>
-		<NavMain items={data.navMain} />
-		<NavAnalytics analytics={data.analytics} />
+		<NavMain items={sidebarData.navMain} />
+		<NavAnalytics analytics={sidebarData.analytics} />
 	</Sidebar.Content>
 	<Sidebar.Footer>
 		<NavUser {user} />
