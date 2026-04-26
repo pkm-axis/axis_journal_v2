@@ -13,6 +13,8 @@
 	import SquareTerminalIcon from "@lucide/svelte/icons/square-terminal";
     import { accountStore } from "$lib/stores/accounts.svelte";
     import { instrumentStore } from "$lib/stores/instruments.svelte";
+    import { strategyStore } from "$lib/stores/strategies.svelte";
+    import { mistakeStore } from "$lib/stores/mistakes.svelte";
 	import { supabase } from "$lib/supabase/client";
 
     let { user, ref = $bindable(null), collapsible = "icon", ...restProps }: ComponentProps<typeof Sidebar.Root> & {
@@ -22,6 +24,8 @@
     onMount(() => {
         if(!user) return;
         instrumentStore.getInstruments(supabase);
+        strategyStore.getStrategies(supabase);
+        mistakeStore.getMistakes(supabase);
     });
 
     const sidebarData = {
@@ -46,7 +50,7 @@
 					},
                     {
 						title: "Strategies & Mistakes",
-						url: "#",
+						url: "/playbook",
 					},
 				],
 			},

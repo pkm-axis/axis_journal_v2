@@ -1,7 +1,7 @@
 import { getAuthToken } from "$lib/utils/auth-token";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-interface Instrument {
+export interface Instrument {
     id: string;
     symbol: string;
     exchange: string;
@@ -15,6 +15,24 @@ interface Instrument {
     max_leverage: number;
     is_active: boolean;
     created_at: string;
+}
+
+/** Account-currency value of a 1.0 price move for one contract. */
+export function pointValue(instr: Instrument | undefined | null): number {
+    if (!instr) return 1;
+    return (instr.tick_value / instr.tick_size) * (instr.contract_size ?? 1);
+}
+
+/** P&L in account currency for a price move on a given instrument. */
+export function instrumentPnl(
+    instr: Instrument | undefined | null,
+    side: "long" | "short",
+    from: number,
+    to: number,
+    quantity: number
+): number {
+    const move = side === "long" ? to - from : from - to;
+    return move * pointValue(instr) * quantity;
 }
 
 function createInstrumentStore() {

@@ -21,6 +21,8 @@ interface Trade {
     opened_at: string;
     closed_at?: string | null;
     notes?: string;
+    strategy_ids?: string[];
+    mistake_ids?: string[];
 }
 
 /** Fields sent to PATCH /api/trades/[id] (no user_id / account_id). */
@@ -39,6 +41,8 @@ export type TradeUpdatePayload = {
     opened_at: string;
     closed_at?: string | null;
     notes?: string | null;
+    strategy_ids?: string[];
+    mistake_ids?: string[];
 };
 
 function createTradeStore() {
@@ -113,6 +117,30 @@ function createTradeStore() {
                 await getTradesByAccount(supabase);
             } catch (e) {
                 console.error("Error creating trade:", e);
+                throw e;
+            }
+        },
+        deleteTrade: async (supabase: SupabaseClient, tradeId: string) => {
+            try {
+                const token = await getAuthToken(supabase);
+                const response = await fetch(`/api/trades/${encodeURIComponent(tradeId)}`, {
+                    method: "DELETE",
+                    credentials: "include",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                    },
+                });
+
+                const result = await response.json();
+
+                if (!result.success) {
+                    throw new Error(result.message || "Failed to delete trade");
+                }
+
+                await getTradesByAccount(supabase);
+            } catch (e) {
+                console.error("Error deleting trade:", e);
                 throw e;
             }
         },

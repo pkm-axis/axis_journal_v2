@@ -216,46 +216,64 @@ for delete
 to authenticated
 using ((select auth.uid()) = user_id);
 
--- alter table trading.strategies enable row level security;
--- alter table trading.mistakes enable row level security;
--- alter table trading.trade_strategies enable row level security;
--- alter table trading.trade_mistakes enable row level security;
+alter table trading.strategies enable row level security;
+alter table trading.mistakes enable row level security;
+alter table trading.trade_strategies enable row level security;
+alter table trading.trade_mistakes enable row level security;
 -- alter table trading.trade_images enable row level security;
 -- alter table trading.trade_plans enable row level security;
 
--- create policy "Users manage strategies"
--- on trading.strategies
--- for all
--- using (auth.uid() = user_id)
--- with check (auth.uid() = user_id);
+create policy "Users manage strategies"
+on trading.strategies
+for all
+to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
 
--- create policy "Users manage mistakes"
--- on trading.mistakes
--- for all
--- using (auth.uid() = user_id)
--- with check (auth.uid() = user_id);
+create policy "Users manage mistakes"
+on trading.mistakes
+for all
+to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
 
--- create policy "Users manage trade_strategies"
--- on trading.trade_strategies
--- for all
--- using (
---   exists (
---     select 1 from trading.trades t
---     where t.id = trade_strategies.trade_id
---     and t.user_id = auth.uid()
---   )
--- );
+create policy "Users manage trade_strategies"
+on trading.trade_strategies
+for all
+to authenticated
+using (
+  exists (
+    select 1 from trading.trades t
+    where t.id = trade_strategies.trade_id
+    and t.user_id = (select auth.uid())
+  )
+)
+with check (
+  exists (
+    select 1 from trading.trades t
+    where t.id = trade_strategies.trade_id
+    and t.user_id = (select auth.uid())
+  )
+);
 
--- create policy "Users manage trade_mistakes"
--- on trading.trade_mistakes
--- for all
--- using (
---   exists (
---     select 1 from trading.trades t
---     where t.id = trade_mistakes.trade_id
---     and t.user_id = auth.uid()
---   )
--- );
+create policy "Users manage trade_mistakes"
+on trading.trade_mistakes
+for all
+to authenticated
+using (
+  exists (
+    select 1 from trading.trades t
+    where t.id = trade_mistakes.trade_id
+    and t.user_id = (select auth.uid())
+  )
+)
+with check (
+  exists (
+    select 1 from trading.trades t
+    where t.id = trade_mistakes.trade_id
+    and t.user_id = (select auth.uid())
+  )
+);
 
 -- create policy "Users manage trade_images"
 -- on trading.trade_images

@@ -63,5 +63,102 @@ export const PATCH: RequestHandler = async ({ params, request, locals: { supabas
 		return json({ success: false, message: "Trade not found" }, { status: 404 });
 	}
 
+	if (Array.isArray(body.strategy_ids)) {
+		const desired = new Set(
+			(body.strategy_ids as unknown[]).filter(
+				(sid): sid is string => typeof sid === "string" && sid.length > 0
+			)
+		);
+
+		const { data: existing } = await supabase
+			.schema("trading")
+			.from("trade_strategies")
+			.select("strategy_id")
+			.eq("trade_id", id);
+
+		const current = new Set(
+			(existing ?? []).map((r: { strategy_id: string }) => r.strategy_id)
+		);
+		const toAdd = [...desired].filter((s) => !current.has(s));
+		const toRemove = [...current].filter((s): s is string => !desired.has(s as string));
+
+		if (toRemove.length > 0) {
+			await supabase
+				.schema("trading")
+				.from("trade_strategies")
+				.delete()
+				.eq("trade_id", id)
+				.in("strategy_id", toRemove);
+		}
+		if (toAdd.length > 0) {
+			await supabase
+				.schema("trading")
+				.from("trade_strategies")
+				.insert(toAdd.map((strategy_id) => ({ trade_id: id, strategy_id })));
+		}
+	}
+
+	if (Array.isArray(body.mistake_ids)) {
+		const desired = new Set(
+			(body.mistake_ids as unknown[]).filter(
+				(mid): mid is string => typeof mid === "string" && mid.length > 0
+			)
+		);
+
+		const { data: existing } = await supabase
+			.schema("trading")
+			.from("trade_mistakes")
+			.select("mistake_id")
+			.eq("trade_id", id);
+
+		const current = new Set(
+			(existing ?? []).map((r: { mistake_id: string }) => r.mistake_id)
+		);
+		const toAdd = [...desired].filter((m) => !current.has(m));
+		const toRemove = [...current].filter((m): m is string => !desired.has(m as string));
+
+		if (toRemove.length > 0) {
+			await supabase
+				.schema("trading")
+				.from("trade_mistakes")
+				.delete()
+				.eq("trade_id", id)
+				.in("mistake_id", toRemove);
+		}
+		if (toAdd.length > 0) {
+			await supabase
+				.schema("trading")
+				.from("trade_mistakes")
+				.insert(toAdd.map((mistake_id) => ({ trade_id: id, mistake_id })));
+		}
+	}
+
 	return json({ success: true, data, message: "Trade updated successfully." });
+};
+
+export const DELETE: RequestHandler = async ({ params, locals: { supabase, safeGetSession } }) => {
+	const { session, user } = await safeGetSession();
+
+	if (!session || !user) {
+		return json({ success: false, message: "Unauthorized" }, { status: 401 });
+	}
+
+	const id = params.id?.trim();
+	if (!id) {
+		return json({ success: false, message: "Missing trade id" }, { status: 400 });
+	}
+
+	const { error } = await supabase
+		.schema("trading")
+		.from("trades")
+		.delete()
+		.eq("id", id)
+		.eq("user_id", user.id);
+
+	if (error) {
+		console.log("Error:", error);
+		return json({ success: false, message: error.message }, { status: 400 });
+	}
+
+	return json({ success: true, message: "Trade deleted successfully." });
 };

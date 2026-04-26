@@ -15,30 +15,18 @@
 		MagnifyingGlassIcon,
 		PencilSimpleIcon,
 		PlusIcon,
-		PulseIcon
+		PulseIcon,
+		TrashIcon
 	} from "phosphor-svelte";
 	import * as Select from "$lib/components/ui/select/index.js";
 	import * as Sheet from "$lib/components/ui/sheet/index.js";
 	import { supabase } from "$lib/supabase/client";
 	import { tradeStore } from "$lib/stores/trades.svelte";
 	import { accountStore } from "$lib/stores/accounts.svelte";
-	import { instrumentStore } from "$lib/stores/instruments.svelte";
-
-    interface Instrument {
-        id: string;
-        symbol: string;
-        exchange: string;
-        market_type: string;
-        base_currency: string;
-        quote_currency: string;
-        contract_size: number;
-        tick_size: number;
-        tick_value: number;
-        expiry_date: string;
-        max_leverage: number;
-        is_active: boolean;
-        created_at: string;
-    }
+	import { instrumentStore, instrumentPnl } from "$lib/stores/instruments.svelte";
+	import { strategyStore } from "$lib/stores/strategies.svelte";
+	import { mistakeStore } from "$lib/stores/mistakes.svelte";
+	import { MultiSelect } from "$lib/components/ui/multi-select";
 
 	interface TradeRow {
 		id: string;
@@ -62,6 +50,8 @@
 		notes: string | null;
 		created_at: string;
 		updated_at: string;
+		strategy_ids?: string[];
+		mistake_ids?: string[];
 	}
 
 	type SideFilter = "all" | "long" | "short";
@@ -75,6 +65,22 @@
 	let session = $state<Session | null>(null);
 	let saveError = $state<string | null>(null);
 	let saving = $state(false);
+	let deleting = $state(false);
+
+	async function deleteTrade() {
+		if (!editingTradeId) return;
+		if (!confirm("Delete this trade? This cannot be undone.")) return;
+		saveError = null;
+		deleting = true;
+		try {
+			await tradeStore.deleteTrade(supabase, editingTradeId);
+			closeTradeSheet();
+		} catch (e) {
+			saveError = e instanceof Error ? e.message : "Failed to delete trade.";
+		} finally {
+			deleting = false;
+		}
+	}
 
 	const trades = $derived.by((): TradeRow[] => (tradeStore.trades ?? []) as TradeRow[]);
 	const loading = $derived(tradeStore.loading);
@@ -98,11 +104,11 @@
 	let formPnl = $state("");
 	let formStopLoss = $state("");
 	let formTakeProfit = $state("");
-	/** Max loss in account currency if the stop is hit (stored in `risk`). */
-	let formDollarRisk = $state("");
-	/** Last P&amp;L we auto-filled (from exit prices or risk × R:R); edit P&amp;L to override. */
+	/** Last P&amp;L we auto-filled from exit prices; edit P&amp;L to override. */
 	let lastAutoPnl = $state<string | null>(null);
 	let formNotes = $state("");
+	let formStrategyIds = $state<string[]>([]);
+	let formMistakeIds = $state<string[]>([]);
 
 	function resetNewTradeForm() {
 		formSymbol = "";
@@ -116,9 +122,10 @@
 		formPnl = "";
 		formStopLoss = "";
 		formTakeProfit = "";
-		formDollarRisk = "";
 		lastAutoPnl = null;
 		formNotes = "";
+		formStrategyIds = [];
+		formMistakeIds = [];
 	}
 
 	function closeTradeSheet() {
@@ -150,9 +157,10 @@
 		formExitPrice = num(t.exit_price) != null ? String(num(t.exit_price)) : "";
 		formClosedAt = t.closed_at ? toDatetimeLocalValue(new Date(t.closed_at)) : null;
 		formPnl = num(t.pnl) != null ? String(num(t.pnl)) : "";
-		formDollarRisk = num(t.risk) != null ? String(num(t.risk)) : "";
 		lastAutoPnl = null;
 		formNotes = t.notes ?? "";
+		formStrategyIds = [...(t.strategy_ids ?? [])];
+		formMistakeIds = [...(t.mistake_ids ?? [])];
 		tradeSheetOpen = true;
 	}
 
@@ -185,7 +193,7 @@
 
 	function formatRiskReward(rr: number | null | undefined) {
 		if (rr == null || !Number.isFinite(rr)) return "—";
-		return `1 : ${rr.toFixed(2)} (per contract)`;
+		return `1:${rr.toFixed(2)}`;
 	}
 
 	function rowRiskReward(t: TradeRow): number | null {
@@ -242,22 +250,6 @@
 		}).format(d);
 	}
 
-    function getPointValue(instr: Instrument | undefined) {
-        if (!instr) return 1;
-
-        // value of 1.0 price move
-        const perPoint = instr.tick_value / instr.tick_size;
-
-        // contract multiplier (if applicable)
-        return perPoint * (instr.contract_size ?? 1);
-    }
-
-    function getInstrumentValue(instr: Instrument | undefined) {
-        if (!instr) return 1;
-
-        return (instr.tick_value / instr.tick_size) * (instr.contract_size ?? 1);
-    }
-
     const selectedInstrument = $derived.by(() => {
         return instrumentStore.instruments?.find(
             (i) => i.symbol === formSymbol
@@ -267,24 +259,7 @@
 	const stats = $derived.by(() => {
 		const rows = filteredTrades;
 		const closed = rows.filter((t) => t.status === "closed");
-		const netPnl = rows.reduce((acc, t) => {
-            const entry = num(t.entry_price);
-            const exit = num(t.exit_price);
-            const qty = num(t.quantity);
-            const instr = instrumentStore.instruments?.find(i => i.symbol === t.symbol);
-
-            if (entry == null || exit == null || qty == null || !instr) {
-                return acc + (num(t.pnl) ?? 0);
-            }
-
-            const pointValue = getPointValue(instr);
-
-            const move = t.side === "long"
-                ? exit - entry
-                : entry - exit;
-
-            return acc + move * pointValue * qty;
-        }, 0);
+		const netPnl = closed.reduce((acc, t) => acc + (num(t.pnl) ?? 0), 0);
 		const wins = closed.filter((t) => (num(t.pnl) ?? 0) > 0).length;
 		const winRate = closed.length ? wins / closed.length : null;
 		const rrValues: number[] = [];
@@ -317,75 +292,20 @@
         const entry = num(formEntryPrice);
         const exit = num(formExitPrice);
         const qty = num(formQuantity);
-        const instr = selectedInstrument;
-        const valuePerPoint = getInstrumentValue(instr);
-
-        if (entry != null && exit != null && qty != null) {
-            const move = formSide === "long"
-                ? exit - entry
-                : entry - exit;
-
-            const raw = move * valuePerPoint * qty;
-
-            return raw.toFixed(2);
-        }
-
-        // fallback: risk × RR (instrument-independent)
-        const d = num(formDollarRisk);
-        const rr = formPlannedRR;
-        if (d != null && rr != null && d > 0) {
-            return (d * rr).toFixed(2);
-        }
-
-        return null;
+        if (entry == null || exit == null || qty == null) return null;
+        return instrumentPnl(selectedInstrument, formSide, entry, exit, qty).toFixed(2);
     });
 
-	const closedPnlUsesExitPrice = $derived.by(() => {
-		if (formStatus !== "closed") return false;
-		const entry = num(formEntryPrice);
-		const exit = num(formExitPrice);
-		const qty = num(formQuantity);
-		return entry != null && exit != null && qty != null;
-	});
+    function priceMovePnl(from: number, to: number) {
+        const qty = num(formQuantity);
+        if (qty == null || !selectedInstrument) return null;
+        return instrumentPnl(selectedInstrument, formSide, from, to, qty);
+    }
 
 	const pnlAtFullTarget = $derived.by(() => {
         const entry = num(formEntryPrice);
-        const stop = num(formStopLoss);
         const tp = num(formTakeProfit);
-        const risk = num(formDollarRisk);
-
-        const instr = selectedInstrument;
-        const valuePerPoint = getInstrumentValue(instr);
-
-        if (
-            entry == null ||
-            stop == null ||
-            tp == null ||
-            risk == null ||
-            risk <= 0 ||
-            !instr
-        ) return null;
-
-        // price distances
-        const riskDist = Math.abs(entry - stop);
-        const rewardDist = Math.abs(tp - entry);
-
-        if (riskDist === 0) return null;
-
-        // R:R
-        const rr = rewardDist / riskDist;
-
-        // SCALE BY INSTRUMENT + QUANTITY LOGIC
-        // risk is total risk → normalize per contract
-        const contracts = num(formQuantity) ?? 1;
-
-        const riskPerContract = risk / contracts;
-
-        // reward scales with contracts + instrument value
-        const pnlPerContract =
-            (riskPerContract / riskDist) * rewardDist;
-
-        return pnlPerContract * contracts;
+        return entry != null && tp != null ? priceMovePnl(entry, tp) : null;
     });
 
 	/** When closed, set P&amp;L from exit/entry/qty if exit is filled; otherwise from risk × R:R. */
@@ -442,11 +362,7 @@
 			return;
 		}
 
-		const dollarRisk = num(formDollarRisk);
-		if (dollarRisk == null || dollarRisk <= 0) {
-			saveError = "Enter how much you are risking in dollars (e.g. 250).";
-			return;
-		}
+		const dollarRisk = stopLossPnL != null ? Math.abs(stopLossPnL) : 0;
 
 		saving = true;
 		const openedAtIso = new Date(formOpenedAt).toISOString();
@@ -460,7 +376,7 @@
 			if (editingTradeId) {
 				const existing = trades.find((x) => x.id === editingTradeId);
 				await tradeStore.updateTrade(supabase, editingTradeId, {
-					instrument_id: existing?.instrument_id ?? null,
+					instrument_id: selectedInstrument?.id ?? existing?.instrument_id ?? null,
 					symbol,
 					side: formSide,
 					status: formStatus,
@@ -473,12 +389,14 @@
 					pnl: formStatus === "closed" ? (num(formPnl) ?? 0) : 0,
 					opened_at: openedAtIso,
 					closed_at: closedAtIso,
-					notes: formNotes.trim() || null
+					notes: formNotes.trim() || null,
+					strategy_ids: formStrategyIds,
+					mistake_ids: formStatus === "closed" ? formMistakeIds : []
 				});
 			} else {
 				await tradeStore.createTrade(supabase, {
 					account_id: accountId,
-					instrument_id: null,
+					instrument_id: selectedInstrument?.id ?? null,
 					symbol,
 					side: formSide,
 					status: formStatus,
@@ -491,7 +409,9 @@
 					pnl: formStatus === "closed" ? (num(formPnl) ?? 0) : 0,
 					opened_at: openedAtIso,
 					closed_at: closedAtIso,
-					notes: formNotes.trim() || undefined
+					notes: formNotes.trim() || undefined,
+					strategy_ids: formStrategyIds,
+					mistake_ids: formStatus === "closed" ? formMistakeIds : []
 				});
 			}
 
@@ -530,9 +450,9 @@
     });
 
     const stopLossPnL = $derived.by(() => {
-        const risk = num(formDollarRisk);
-        if (risk == null || risk <= 0) return null;
-        return -risk;
+        const entry = num(formEntryPrice);
+        const stop = num(formStopLoss);
+        return entry != null && stop != null ? priceMovePnl(entry, stop) : null;
     });
 </script>
 
@@ -630,9 +550,24 @@
 				<div class="text-xs text-muted-foreground">Trades</div>
 				<div class="mt-1 text-2xl font-semibold tabular-nums">{stats.count}</div>
 			</div>
-			<div class="rounded-md border bg-background p-4">
+			<div
+				class={[
+					"rounded-md border p-4 transition-colors",
+					stats.netPnl > 0 && "border-emerald-700/30 bg-emerald-700/5",
+					stats.netPnl < 0 && "border-rose-700/30 bg-rose-700/5",
+					stats.netPnl === 0 && "bg-background"
+				]}
+			>
 				<div class="text-xs text-muted-foreground">Net P&amp;L</div>
-				<div class="mt-1 text-2xl font-semibold tabular-nums">{formatUsd(stats.netPnl)}</div>
+				<div
+					class={[
+						"mt-1 text-2xl font-semibold tabular-nums",
+						stats.netPnl > 0 && "text-emerald-700 dark:text-emerald-400",
+						stats.netPnl < 0 && "text-rose-700 dark:text-rose-400"
+					]}
+				>
+					{formatUsd(stats.netPnl)}
+				</div>
 			</div>
 			<div class="rounded-md border bg-background p-4">
 				<div class="text-xs text-muted-foreground">Avg risk/reward</div>
@@ -680,43 +615,98 @@
 					<table class="w-full text-sm">
 						<thead class="bg-muted/30 text-muted-foreground">
 							<tr class="[&>th]:px-4 [&>th]:py-2 [&>th]:text-left [&>th]:font-medium">
-								<th>Symbol</th>
-								<th>Side</th>
-								<th>Status</th>
-								<th class="text-right">Entry</th>
-								<th class="text-right">Exit</th>
-								<th class="text-right">Qty</th>
-								<th class="text-right">Stop</th>
-								<th class="text-right">Target</th>
-								<th class="text-right">R:R</th>
-								<th>Opened</th>
-								<th>Closed</th>
-								<th class="text-right">P&amp;L</th>
-								<th class="w-14 text-right"> </th>
+								<th class="w-24 whitespace-nowrap">Symbol</th>
+								<th class="whitespace-nowrap">Side</th>
+								<th class="whitespace-nowrap">Status</th>
+								<th class="text-right whitespace-nowrap">Entry</th>
+								<th class="text-right whitespace-nowrap">Exit</th>
+								<th class="text-right whitespace-nowrap">Qty</th>
+								<th class="text-right whitespace-nowrap">Stop</th>
+								<th class="text-right whitespace-nowrap">Target</th>
+								<th class="text-right whitespace-nowrap">R:R</th>
+								<th class="whitespace-nowrap">Opened</th>
+								<th class="whitespace-nowrap">Closed</th>
+								<th class="text-right whitespace-nowrap">P&amp;L</th>
+								<th class="whitespace-nowrap">Tags</th>
+								<th class="w-14 text-right whitespace-nowrap">Actions</th>
 							</tr>
 						</thead>
 						<tbody class="[&>tr:not(:last-child)]:border-b">
 							{#each filteredTrades as t (t.id)}
+								{@const side = normalizeSide(t.side)}
+								{@const pnl = num(t.pnl)}
 								<tr class="[&>td]:px-4 [&>td]:py-3 hover:bg-muted/30">
-									<td class="font-medium">{t.symbol}</td>
-									<td class="capitalize">{normalizeSide(t.side) ?? "—"}</td>
-									<td class="capitalize">{t.status}</td>
-									<td class="text-right tabular-nums">{formatPrice(t.entry_price)}</td>
-									<td class="text-right tabular-nums">{formatPrice(t.exit_price)}</td>
-									<td class="text-right tabular-nums">{formatQty(t.quantity)}</td>
-									<td class="text-right tabular-nums">{formatPrice(t.stop_loss)}</td>
-									<td class="text-right tabular-nums">{formatPrice(t.take_profit)}</td>
-									<td class="text-right tabular-nums text-xs">{formatRiskReward(rowRiskReward(t))}</td>
-									<td class="tabular-nums text-xs">{formatWhen(t.opened_at)}</td>
-									<td class="tabular-nums text-xs">{formatWhen(t.closed_at)}</td>
-									<td class="text-right tabular-nums">
+									<td class="font-medium whitespace-nowrap text-xs">{t.symbol}</td>
+									<td class="whitespace-nowrap text-xs">
+										{#if side === "long"}
+											<span class="inline-flex items-center gap-1 rounded-md bg-emerald-700/10 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+												<ChartLineUpIcon size={12} /> Long
+											</span>
+										{:else if side === "short"}
+											<span class="inline-flex items-center gap-1 rounded-md bg-rose-700/10 px-2 py-0.5 text-xs font-medium text-rose-700 dark:text-rose-400">
+												<ChartLineDownIcon size={12} /> Short
+											</span>
+										{:else}
+											<span class="text-muted-foreground">—</span>
+										{/if}
+									</td>
+									<td class="whitespace-nowrap text-xs">
 										<span
-											class={num(t.pnl) == null ? "" : (num(t.pnl) ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}
+											class={[
+												"inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium capitalize",
+												t.status === "open"
+													? "bg-amber-700/10 text-amber-700 dark:text-amber-400"
+													: "bg-muted text-muted-foreground"
+											]}
 										>
-											{formatUsd(num(t.pnl))}
+											{t.status}
 										</span>
 									</td>
-									<td class="px-2 text-right">
+									<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.entry_price)}</td>
+									<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.exit_price)}</td>
+									<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatQty(t.quantity)}</td>
+									<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.stop_loss)}</td>
+									<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.take_profit)}</td>
+									<td class="text-right tabular-nums text-xs whitespace-nowrap">{formatRiskReward(rowRiskReward(t))}</td>
+									<td class="tabular-nums text-xs whitespace-nowrap">{formatWhen(t.opened_at)}</td>
+									<td class="tabular-nums text-xs whitespace-nowrap">{formatWhen(t.closed_at)}</td>
+									<td class="text-right tabular-nums whitespace-nowrap text-xs">
+										<span
+											class={[
+												"font-medium",
+												pnl != null && pnl > 0 && "text-emerald-700 dark:text-emerald-400",
+												pnl != null && pnl < 0 && "text-rose-700 dark:text-rose-400",
+												(pnl == null || pnl === 0) && "text-muted-foreground"
+											]}
+										>
+											{formatUsd(pnl)}
+										</span>
+									</td>
+									<td class="whitespace-nowrap text-xs">
+										{#if (t.strategy_ids ?? []).length === 0 && (t.mistake_ids ?? []).length === 0}
+											<span class="text-muted-foreground text-xs">—</span>
+										{:else}
+											<div class="flex flex-wrap gap-1 whitespace-nowrap text-xs">
+												{#each (t.strategy_ids ?? []) as sid}
+													{@const name = strategyStore.strategies.find((s) => s.id === sid)?.name}
+													{#if name}
+														<span class="inline-flex items-center rounded-md bg-emerald-700/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+															{name}
+														</span>
+													{/if}
+												{/each}
+												{#each (t.mistake_ids ?? []) as mid}
+													{@const name = mistakeStore.mistakes.find((m) => m.id === mid)?.name}
+													{#if name}
+														<span class="inline-flex items-center rounded-md bg-rose-700/10 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 dark:text-rose-400">
+															{name}
+														</span>
+													{/if}
+												{/each}
+											</div>
+										{/if}
+									</td>
+									<td class="px-2 text-right whitespace-nowrap text-xs">
 										<Button
 											variant="ghost"
 											size="icon"
@@ -757,7 +747,7 @@
 					</div>
 				{/if}
 
-				<div class="px-4 pb-2 space-y-4">
+				<div class="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
 					<div class="space-y-1.5">
 						<div class="text-xs font-medium">Symbol</div>
 						<!-- <Input bind:value={formSymbol} placeholder="e.g. ES, BTCUSDT" class="rounded-md" /> -->
@@ -837,41 +827,26 @@
 						</div>
 					</div>
 
-					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Amount at risk ($)</div>
-						<Input
-							bind:value={formDollarRisk}
-							inputmode="decimal"
-							placeholder="e.g. 250"
-							class="rounded-md"
-						/>
-						<p class="text-[11px] text-muted-foreground leading-snug">
-							Max loss if your stop is hit. P&amp;L at full take profit uses this × your planned R:R.
-						</p>
-					</div>
-
-					<div class="rounded-md border bg-muted/30 px-3 py-2 text-xs space-y-1.5">
-						<div>
-							<div class="font-medium text-muted-foreground">Planned risk/reward</div>
-							<div class="mt-0.5 tabular-nums">
-								{formatRiskReward(formPlannedRR)}
-								{#if formPlannedRR == null && num(formEntryPrice) != null && num(formStopLoss) != null && num(formTakeProfit) != null}
-									<span class="text-muted-foreground"> (check side vs. stop/target levels)</span>
-								{/if}
-							</div>
-						</div>
-						<div class="flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
+					<div class="rounded-md border bg-muted/30 px-3 py-2.5 text-xs">
+						<div class="grid grid-cols-3 gap-3 tabular-nums">
 							<div>
-								<span class="text-muted-foreground">At full target:</span>
-								<span class="ml-1 font-medium text-emerald-600">{formatUsd(pnlAtFullTarget)}</span>
+								<div class="text-muted-foreground">Risk / reward</div>
+								<div class="mt-0.5 font-medium">{formatRiskReward(formPlannedRR)}</div>
 							</div>
 							<div>
-								<span class="text-muted-foreground">If stopped out:</span>
-								<span class="ml-1 font-medium text-red-600">
-									{formatUsd(stopLossPnL)}
-								</span>
+								<div class="text-muted-foreground">At target</div>
+								<div class="mt-0.5 font-medium text-emerald-700 dark:text-emerald-400">{formatUsd(pnlAtFullTarget)}</div>
+							</div>
+							<div>
+								<div class="text-muted-foreground">If stopped</div>
+								<div class="mt-0.5 font-medium text-rose-700 dark:text-rose-400">{formatUsd(stopLossPnL)}</div>
 							</div>
 						</div>
+						{#if formPlannedRR == null && num(formEntryPrice) != null && num(formStopLoss) != null && num(formTakeProfit) != null}
+							<div class="mt-1.5 text-[11px] text-muted-foreground">
+								Check side vs. stop/target levels.
+							</div>
+						{/if}
 					</div>
 
 					<div class="space-y-1.5">
@@ -902,16 +877,38 @@
 							<div class="text-xs font-medium">P&amp;L</div>
 							<Input bind:value={formPnl} inputmode="decimal" placeholder="Optional" class="rounded-md" />
 							<p class="text-[11px] text-muted-foreground leading-snug">
-								{#if closedPnlUsesExitPrice}
-									Recalculated from entry, exit, quantity, and side. Clear exit to use risk × R:R instead.
-								{:else}
-									Filled from risk × R:R when exit price is empty. Add an exit to derive P&amp;L from
-									prices × quantity.
-								{/if}
-								Edit the field if you need a different number (fees, scaling, partials).
+								Auto-calculated from entry, exit, quantity, and instrument. Edit if you
+								need a different number (fees, scaling, partials).
+							</p>
+						</div>
+
+						<div class="space-y-1.5">
+							<div class="text-xs font-medium">Mistakes</div>
+							<MultiSelect
+								bind:selected={formMistakeIds}
+								options={mistakeStore.mistakes.map((m) => ({ value: m.id, label: m.name }))}
+								placeholder={mistakeStore.mistakes.length === 0
+									? "Create one in Strategies & Mistakes"
+									: "Tag mistakes made (post-trade)"}
+								emptyText="No mistakes catalogued yet."
+							/>
+							<p class="text-[11px] text-muted-foreground leading-snug">
+								Reviewed only after closing — what would you do differently?
 							</p>
 						</div>
 					{/if}
+
+					<div class="space-y-1.5">
+						<div class="text-xs font-medium">Strategies</div>
+						<MultiSelect
+							bind:selected={formStrategyIds}
+							options={strategyStore.strategies.map((s) => ({ value: s.id, label: s.name }))}
+							placeholder={strategyStore.strategies.length === 0
+								? "Create one in Strategies & Mistakes"
+								: "Tag strategies used"}
+							emptyText="No strategies yet — add some in Strategies & Mistakes."
+						/>
+					</div>
 
 					<div class="space-y-1.5">
 						<div class="text-xs font-medium">Notes</div>
@@ -925,17 +922,32 @@
 				</div>
 
 				<Sheet.Footer class="border-t">
-					<div class="flex justify-end gap-2">
-						<Button variant="outline" class="rounded-md cursor-pointer" onclick={closeTradeSheet}>
-							Cancel
-						</Button>
-						<Button
-							class="rounded-md bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground cursor-pointer"
-							disabled={!formSymbol.trim() || saving || !session || !accountStore.activeAccountId}
-							onclick={submitTradeForm}
-						>
-							{saving ? "Saving…" : isEditingTrade ? "Save changes" : "Create trade"}
-						</Button>
+					<div class="flex items-center justify-between gap-2">
+						{#if isEditingTrade}
+							<Button
+								variant="ghost"
+								class="rounded-md cursor-pointer text-rose-700 hover:bg-rose-700/10 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-400"
+								disabled={deleting || saving}
+								onclick={deleteTrade}
+							>
+								<TrashIcon size={16} />
+								{deleting ? "Deleting…" : "Delete"}
+							</Button>
+						{:else}
+							<div></div>
+						{/if}
+						<div class="flex gap-2">
+							<Button variant="outline" class="rounded-md cursor-pointer" onclick={closeTradeSheet}>
+								Cancel
+							</Button>
+							<Button
+								class="rounded-md bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground cursor-pointer"
+								disabled={!formSymbol.trim() || saving || deleting || !session || !accountStore.activeAccountId}
+								onclick={submitTradeForm}
+							>
+								{saving ? "Saving…" : isEditingTrade ? "Save changes" : "Create trade"}
+							</Button>
+						</div>
 					</div>
 				</Sheet.Footer>
 			</Sheet.Content>
