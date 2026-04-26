@@ -13,22 +13,42 @@
 		ChartLineUpIcon,
 		FunnelIcon,
 		MagnifyingGlassIcon,
+		PencilSimpleIcon,
 		PlusIcon,
 		PulseIcon
 	} from "phosphor-svelte";
 	import * as Select from "$lib/components/ui/select/index.js";
 	import * as Sheet from "$lib/components/ui/sheet/index.js";
 	import { supabase } from "$lib/supabase/client";
+	import { tradeStore } from "$lib/stores/trades.svelte";
+	import { accountStore } from "$lib/stores/accounts.svelte";
+	import { instrumentStore } from "$lib/stores/instruments.svelte";
 
-	/** Row shape from `trading.trades` (PostgREST may return numeric columns as string). */
-	type TradeRow = {
+    interface Instrument {
+        id: string;
+        symbol: string;
+        exchange: string;
+        market_type: string;
+        base_currency: string;
+        quote_currency: string;
+        contract_size: number;
+        tick_size: number;
+        tick_value: number;
+        expiry_date: string;
+        max_leverage: number;
+        is_active: boolean;
+        created_at: string;
+    }
+
+	interface TradeRow {
 		id: string;
 		user_id: string;
 		account_id: string | null;
 		instrument_id: string | null;
 		symbol: string;
 		market: string | null;
-		side: "long" | "short" | null;
+		side: string | null;
+		status: "open" | "closed";
 		entry_price: string | number;
 		exit_price: string | number | null;
 		quantity: string | number;
@@ -37,14 +57,12 @@
 		risk: string | number | null;
 		pnl: string | number | null;
 		r_multiple: string | number | null;
-		status: "open" | "closed";
 		opened_at: string;
 		closed_at: string | null;
-		duration_seconds: number | null;
 		notes: string | null;
 		created_at: string;
 		updated_at: string;
-	};
+	}
 
 	type SideFilter = "all" | "long" | "short";
 	type StatusFilter = "all" | "open" | "closed";
@@ -54,19 +72,22 @@
 		return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 	}
 
-	let trades = $state<TradeRow[]>([]);
 	let session = $state<Session | null>(null);
-	let loading = $state(true);
-	let loadError = $state<string | null>(null);
 	let saveError = $state<string | null>(null);
 	let saving = $state(false);
+
+	const trades = $derived.by((): TradeRow[] => (tradeStore.trades ?? []) as TradeRow[]);
+	const loading = $derived(tradeStore.loading);
 
 	let searchQuery = $state("");
 	let directionFilter = $state<SideFilter>("all");
 	let statusFilter = $state<StatusFilter>("all");
 
-	let newTradeOpen = $state(false);
-	let formSymbol = $state("");
+	let tradeSheetOpen = $state(false);
+	let editingTradeId = $state<string | null>(null);
+
+	const isEditingTrade = $derived(editingTradeId != null);
+	let formSymbol = $derived("")
 	let formSide = $state<"long" | "short">("long");
 	let formStatus = $state<"open" | "closed">("open");
 	let formEntryPrice = $state("");
@@ -75,7 +96,12 @@
 	let formExitPrice = $state("");
 	let formClosedAt = $state<string | null>(null);
 	let formPnl = $state("");
-	let formRMultiple = $state("");
+	let formStopLoss = $state("");
+	let formTakeProfit = $state("");
+	/** Max loss in account currency if the stop is hit (stored in `risk`). */
+	let formDollarRisk = $state("");
+	/** Last P&amp;L we auto-filled (from exit prices or risk × R:R); edit P&amp;L to override. */
+	let lastAutoPnl = $state<string | null>(null);
 	let formNotes = $state("");
 
 	function resetNewTradeForm() {
@@ -88,8 +114,46 @@
 		formExitPrice = "";
 		formClosedAt = null;
 		formPnl = "";
-		formRMultiple = "";
+		formStopLoss = "";
+		formTakeProfit = "";
+		formDollarRisk = "";
+		lastAutoPnl = null;
 		formNotes = "";
+	}
+
+	function closeTradeSheet() {
+		tradeSheetOpen = false;
+		saveError = null;
+		editingTradeId = null;
+		resetNewTradeForm();
+	}
+
+	function openTradeSheetCreate() {
+		editingTradeId = null;
+		resetNewTradeForm();
+		tradeSheetOpen = true;
+	}
+
+	function openTradeSheetEdit(t: TradeRow) {
+		saveError = null;
+		editingTradeId = t.id;
+		formSymbol = t.symbol ?? "";
+		formSide = normalizeSide(t.side) ?? "long";
+		formStatus = t.status;
+		formEntryPrice = num(t.entry_price) != null ? String(num(t.entry_price)) : "";
+		formQuantity = num(t.quantity) != null ? String(num(t.quantity)) : "1";
+		formStopLoss = num(t.stop_loss) != null ? String(num(t.stop_loss)) : "";
+		formTakeProfit = num(t.take_profit) != null ? String(num(t.take_profit)) : "";
+		formOpenedAt = t.opened_at
+			? toDatetimeLocalValue(new Date(t.opened_at))
+			: toDatetimeLocalValue(new Date());
+		formExitPrice = num(t.exit_price) != null ? String(num(t.exit_price)) : "";
+		formClosedAt = t.closed_at ? toDatetimeLocalValue(new Date(t.closed_at)) : null;
+		formPnl = num(t.pnl) != null ? String(num(t.pnl)) : "";
+		formDollarRisk = num(t.risk) != null ? String(num(t.risk)) : "";
+		lastAutoPnl = null;
+		formNotes = t.notes ?? "";
+		tradeSheetOpen = true;
 	}
 
 	function num(v: string | number | null | undefined): number | undefined {
@@ -98,10 +162,46 @@
 		return Number.isFinite(n) ? n : undefined;
 	}
 
+	function normalizeSide(side: string | null | undefined): "long" | "short" | null {
+		if (side == null || side === "") return null;
+		const s = String(side).toLowerCase();
+		if (s === "long" || s === "short") return s;
+		return null;
+	}
+
+	/** Reward:risk from entry, stop, and take profit (price distance). */
+	function riskRewardRatio(
+		entry: number,
+		stop: number,
+		takeProfit: number,
+		side: "long" | "short"
+	): number | null {
+		if (!Number.isFinite(entry) || !Number.isFinite(stop) || !Number.isFinite(takeProfit)) return null;
+		const riskDist = side === "long" ? entry - stop : stop - entry;
+		const rewardDist = side === "long" ? takeProfit - entry : entry - takeProfit;
+		if (riskDist <= 0 || rewardDist <= 0) return null;
+		return rewardDist / riskDist;
+	}
+
+	function formatRiskReward(rr: number | null | undefined) {
+		if (rr == null || !Number.isFinite(rr)) return "—";
+		return `1 : ${rr.toFixed(2)} (per contract)`;
+	}
+
+	function rowRiskReward(t: TradeRow): number | null {
+		const e = num(t.entry_price);
+		const sl = num(t.stop_loss);
+		const tp = num(t.take_profit);
+		const s = normalizeSide(t.side);
+		if (e == null || sl == null || tp == null || (s !== "long" && s !== "short")) return null;
+		return riskRewardRatio(e, sl, tp, s);
+	}
+
 	const filteredTrades = $derived.by((): TradeRow[] => {
 		const q = searchQuery.trim().toLowerCase();
 		return trades.filter((t) => {
-			if (directionFilter !== "all" && (t.side ?? "") !== directionFilter) return false;
+			const rowSide = normalizeSide(t.side);
+			if (directionFilter !== "all" && rowSide !== directionFilter) return false;
 			if (statusFilter !== "all" && t.status !== statusFilter) return false;
 			if (!q) return true;
 			return (
@@ -115,12 +215,6 @@
 	function formatUsd(value?: number | null) {
 		if (value == null || Number.isNaN(value)) return "—";
 		return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(value);
-	}
-
-	function formatRM(value?: number | null) {
-		if (value == null || Number.isNaN(value)) return "—";
-		const sign = value > 0 ? "+" : "";
-		return `${sign}${value.toFixed(2)}R`;
 	}
 
 	function formatPrice(value: string | number | null | undefined) {
@@ -148,105 +242,298 @@
 		}).format(d);
 	}
 
+    function getPointValue(instr: Instrument | undefined) {
+        if (!instr) return 1;
+
+        // value of 1.0 price move
+        const perPoint = instr.tick_value / instr.tick_size;
+
+        // contract multiplier (if applicable)
+        return perPoint * (instr.contract_size ?? 1);
+    }
+
+    function getInstrumentValue(instr: Instrument | undefined) {
+        if (!instr) return 1;
+
+        return (instr.tick_value / instr.tick_size) * (instr.contract_size ?? 1);
+    }
+
+    const selectedInstrument = $derived.by(() => {
+        return instrumentStore.instruments?.find(
+            (i) => i.symbol === formSymbol
+        );
+    });
+
 	const stats = $derived.by(() => {
 		const rows = filteredTrades;
 		const closed = rows.filter((t) => t.status === "closed");
-		const netPnl = rows.reduce((acc, t) => acc + (num(t.pnl) ?? 0), 0);
-		const totalR = rows.reduce((acc, t) => acc + (num(t.r_multiple) ?? 0), 0);
+		const netPnl = rows.reduce((acc, t) => {
+            const entry = num(t.entry_price);
+            const exit = num(t.exit_price);
+            const qty = num(t.quantity);
+            const instr = instrumentStore.instruments?.find(i => i.symbol === t.symbol);
+
+            if (entry == null || exit == null || qty == null || !instr) {
+                return acc + (num(t.pnl) ?? 0);
+            }
+
+            const pointValue = getPointValue(instr);
+
+            const move = t.side === "long"
+                ? exit - entry
+                : entry - exit;
+
+            return acc + move * pointValue * qty;
+        }, 0);
 		const wins = closed.filter((t) => (num(t.pnl) ?? 0) > 0).length;
 		const winRate = closed.length ? wins / closed.length : null;
-		return { count: rows.length, netPnl, totalR, winRate };
+		const rrValues: number[] = [];
+		for (const t of rows) {
+			const e = num(t.entry_price);
+			const sl = num(t.stop_loss);
+			const tp = num(t.take_profit);
+			const s = normalizeSide(t.side);
+			if (e != null && sl != null && tp != null && (s === "long" || s === "short")) {
+				const rr = riskRewardRatio(e, sl, tp, s);
+				if (rr != null) rrValues.push(rr);
+			}
+		}
+		const avgRr =
+			rrValues.length > 0 ? rrValues.reduce((a, b) => a + b, 0) / rrValues.length : null;
+		return { count: rows.length, netPnl, winRate, avgRr };
 	});
 
-	async function refreshSessionAndLoad() {
-		loadError = null;
-		loading = true;
-		const { data: { session: s } } = await supabase.auth.getSession();
+	const formPlannedRR = $derived.by(() => {
+		const e = num(formEntryPrice);
+		const sl = num(formStopLoss);
+		const tp = num(formTakeProfit);
+		if (e == null || sl == null || tp == null) return null;
+		return riskRewardRatio(e, sl, tp, formSide);
+	});
+
+	const suggestedClosedPnl = $derived.by((): string | null => {
+        if (formStatus !== "closed") return null;
+
+        const entry = num(formEntryPrice);
+        const exit = num(formExitPrice);
+        const qty = num(formQuantity);
+        const instr = selectedInstrument;
+        const valuePerPoint = getInstrumentValue(instr);
+
+        if (entry != null && exit != null && qty != null) {
+            const move = formSide === "long"
+                ? exit - entry
+                : entry - exit;
+
+            const raw = move * valuePerPoint * qty;
+
+            return raw.toFixed(2);
+        }
+
+        // fallback: risk × RR (instrument-independent)
+        const d = num(formDollarRisk);
+        const rr = formPlannedRR;
+        if (d != null && rr != null && d > 0) {
+            return (d * rr).toFixed(2);
+        }
+
+        return null;
+    });
+
+	const closedPnlUsesExitPrice = $derived.by(() => {
+		if (formStatus !== "closed") return false;
+		const entry = num(formEntryPrice);
+		const exit = num(formExitPrice);
+		const qty = num(formQuantity);
+		return entry != null && exit != null && qty != null;
+	});
+
+	const pnlAtFullTarget = $derived.by(() => {
+        const entry = num(formEntryPrice);
+        const stop = num(formStopLoss);
+        const tp = num(formTakeProfit);
+        const risk = num(formDollarRisk);
+
+        const instr = selectedInstrument;
+        const valuePerPoint = getInstrumentValue(instr);
+
+        if (
+            entry == null ||
+            stop == null ||
+            tp == null ||
+            risk == null ||
+            risk <= 0 ||
+            !instr
+        ) return null;
+
+        // price distances
+        const riskDist = Math.abs(entry - stop);
+        const rewardDist = Math.abs(tp - entry);
+
+        if (riskDist === 0) return null;
+
+        // R:R
+        const rr = rewardDist / riskDist;
+
+        // SCALE BY INSTRUMENT + QUANTITY LOGIC
+        // risk is total risk → normalize per contract
+        const contracts = num(formQuantity) ?? 1;
+
+        const riskPerContract = risk / contracts;
+
+        // reward scales with contracts + instrument value
+        const pnlPerContract =
+            (riskPerContract / riskDist) * rewardDist;
+
+        return pnlPerContract * contracts;
+    });
+
+	/** When closed, set P&amp;L from exit/entry/qty if exit is filled; otherwise from risk × R:R. */
+	$effect(() => {
+		const suggested = suggestedClosedPnl;
+		if (suggested == null) return;
+		const shouldSync = formPnl === "" || formPnl === lastAutoPnl;
+		if (shouldSync) {
+			formPnl = suggested;
+			lastAutoPnl = suggested;
+		}
+	});
+
+	async function refreshSession() {
+		const {
+			data: { session: s }
+		} = await supabase.auth.getSession();
 		session = s;
-		await loadTrades();
-		loading = false;
 	}
 
-	async function loadTrades() {
-		loadError = null;
-		if (!session) {
-			trades = [];
-			return;
-		}
-		const { data, error } = await supabase
-			.schema("trading")
-			.from("trades")
-			.select("*")
-			.order("opened_at", { ascending: false });
-
-		if (error) {
-			loadError = error.message;
-			trades = [];
-			return;
-		}
-		trades = (data ?? []) as TradeRow[];
-	}
-
-	async function createTradeFromForm() {
+	async function submitTradeForm() {
 		saveError = null;
 		if (!session?.user?.id) {
-			saveError = "Sign in to create a trade.";
+			saveError = "Sign in to save a trade.";
+			return;
+		}
+
+		const accountId = accountStore.activeAccountId;
+		if (!accountId) {
+			saveError = "Select an account in the sidebar before saving a trade.";
 			return;
 		}
 
 		const symbol = formSymbol.trim().toUpperCase();
 		const entryPrice = num(formEntryPrice);
 		const qty = num(formQuantity);
+		const stopLoss = num(formStopLoss);
+		const takeProfit = num(formTakeProfit);
 		if (!symbol || entryPrice == null || qty == null) {
 			saveError = "Symbol, entry price, and quantity are required.";
+			return;
+		}
+		if (stopLoss == null || takeProfit == null) {
+			saveError = "Stop loss and take profit are required to record the trade and risk/reward.";
+			return;
+		}
+
+		const rr = riskRewardRatio(entryPrice, stopLoss, takeProfit, formSide);
+		if (rr == null) {
+			saveError =
+				formSide === "long"
+					? "For a long, stop must be below entry and take profit above entry."
+					: "For a short, stop must be above entry and take profit below entry.";
+			return;
+		}
+
+		const dollarRisk = num(formDollarRisk);
+		if (dollarRisk == null || dollarRisk <= 0) {
+			saveError = "Enter how much you are risking in dollars (e.g. 250).";
 			return;
 		}
 
 		saving = true;
 		const openedAtIso = new Date(formOpenedAt).toISOString();
-		const exitPrice = formStatus === "closed" ? num(formExitPrice) : null;
+		const exitPrice = formStatus === "closed" ? (num(formExitPrice) ?? null) : null;
 		const closedAtIso =
 			formStatus === "closed" && formClosedAt?.trim()
 				? new Date(formClosedAt).toISOString()
-				: formStatus === "closed"
-					? null
-					: null;
+				: null;
 
-		const { error } = await supabase.schema("trading").from("trades").insert({
-			user_id: session.user.id,
-			symbol,
-			market: null,
-			side: formSide,
-			entry_price: entryPrice,
-			quantity: qty,
-			opened_at: openedAtIso,
-			status: formStatus,
-			exit_price: exitPrice,
-			closed_at: closedAtIso,
-			pnl: num(formPnl) ?? null,
-			r_multiple: num(formRMultiple) ?? null,
-			notes: formNotes.trim() || null
-		});
+		try {
+			if (editingTradeId) {
+				const existing = trades.find((x) => x.id === editingTradeId);
+				await tradeStore.updateTrade(supabase, editingTradeId, {
+					instrument_id: existing?.instrument_id ?? null,
+					symbol,
+					side: formSide,
+					status: formStatus,
+					entry_price: entryPrice,
+					exit_price: exitPrice,
+					quantity: qty,
+					stop_loss: stopLoss,
+					take_profit: takeProfit,
+					risk: dollarRisk,
+					pnl: formStatus === "closed" ? (num(formPnl) ?? 0) : 0,
+					opened_at: openedAtIso,
+					closed_at: closedAtIso,
+					notes: formNotes.trim() || null
+				});
+			} else {
+				await tradeStore.createTrade(supabase, {
+					account_id: accountId,
+					instrument_id: null,
+					symbol,
+					side: formSide,
+					status: formStatus,
+					entry_price: entryPrice,
+					exit_price: exitPrice,
+					quantity: qty,
+					stop_loss: stopLoss,
+					take_profit: takeProfit,
+					risk: dollarRisk,
+					pnl: formStatus === "closed" ? (num(formPnl) ?? 0) : 0,
+					opened_at: openedAtIso,
+					closed_at: closedAtIso,
+					notes: formNotes.trim() || undefined
+				});
+			}
 
-		saving = false;
-		if (error) {
-			saveError = error.message;
-			return;
+			closeTradeSheet();
+		} catch (e) {
+			saveError = e instanceof Error ? e.message : "Failed to save trade.";
+		} finally {
+			saving = false;
 		}
-
-		newTradeOpen = false;
-		resetNewTradeForm();
-		await loadTrades();
 	}
 
 	onMount(() => {
 		resetNewTradeForm();
-		void refreshSessionAndLoad();
-		const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
-			void refreshSessionAndLoad();
+		void refreshSession();
+		const {
+			data: { subscription }
+		} = supabase.auth.onAuthStateChange(() => {
+			void refreshSession();
 		});
 		return () => subscription.unsubscribe();
 	});
+
+	$effect(() => {
+		if (!session?.user?.id) return;
+		void accountStore.activeAccountId;
+		void tradeStore.getTradesByAccount(supabase);
+	});
+
+    $effect(() => {
+        const first = instrumentStore.instruments?.[0];
+        if (!first) return;
+
+        if (!formSymbol) {
+            formSymbol = first.symbol;
+        }
+    });
+
+    const stopLossPnL = $derived.by(() => {
+        const risk = num(formDollarRisk);
+        if (risk == null || risk <= 0) return null;
+        return -risk;
+    });
 </script>
 
 <HeaderNavbar links={true}>
@@ -264,31 +551,26 @@
 				<p class="text-sm text-muted-foreground">Create and manage your trades.</p>
 			</div>
 			<Button
-				onclick={() => (newTradeOpen = true)}
+				onclick={openTradeSheetCreate}
 				variant="outline"
 				class="cursor-pointer rounded-md bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
-				disabled={!session}
+				disabled={!session || !accountStore.activeAccountId}
 			>
 				<PlusIcon />
 				New Trade
 			</Button>
 		</div>
 
-		{#if loadError}
-			<div class="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-				{loadError}
-				<span class="mt-1 block text-xs text-muted-foreground">
-					Expose <code class="rounded bg-muted px-1">trading</code> and <code class="rounded bg-muted px-1">app</code> in
-					API settings; apply the grant migration in <code class="rounded bg-muted px-1">supabase/migrations/</code>;
-					confirm <code class="rounded bg-muted px-1">PUBLIC_SUPABASE_*</code> in <code class="rounded bg-muted px-1">.env</code>.
-				</span>
-			</div>
-		{/if}
-
 		{#if !loading && !session}
 			<div class="rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
 				Sign in with Supabase Auth to load and create trades. Your user must have a row in
 				<code class="rounded bg-muted px-1">app.profiles</code> for inserts (FK).
+			</div>
+		{/if}
+
+		{#if !loading && session && !accountStore.activeAccountId}
+			<div class="rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+				Choose an account from the sidebar to load and create trades for that account.
 			</div>
 		{/if}
 
@@ -299,14 +581,14 @@
 					placeholder="Search trades..."
 					class="pl-9 rounded-md"
 					bind:value={searchQuery}
-					disabled={!session}
+					disabled={!session || !accountStore.activeAccountId}
 				/>
 				<div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
 					<MagnifyingGlassIcon size={16} class="text-muted-foreground" />
 				</div>
 			</div>
 			<Select.Root type="single" bind:value={directionFilter}>
-				<Select.Trigger class="w-[160px] rounded-md cursor-pointer" disabled={!session}>
+				<Select.Trigger class="w-[160px] rounded-md cursor-pointer" disabled={!session || !accountStore.activeAccountId}>
 					<FunnelIcon size={16} class="text-muted-foreground" />
 					<span class="capitalize">{directionFilter === "all" ? "All sides" : directionFilter}</span>
 				</Select.Trigger>
@@ -323,7 +605,7 @@
 				</Select.Content>
 			</Select.Root>
 			<Select.Root type="single" bind:value={statusFilter}>
-				<Select.Trigger class="w-[160px] rounded-md cursor-pointer" disabled={!session}>
+				<Select.Trigger class="w-[160px] rounded-md cursor-pointer" disabled={!session || !accountStore.activeAccountId}>
 					<PulseIcon class="mr-2 h-4 w-4" />
 					<span class="capitalize">
 						{statusFilter === "all" ? "All statuses" : statusFilter}
@@ -353,8 +635,10 @@
 				<div class="mt-1 text-2xl font-semibold tabular-nums">{formatUsd(stats.netPnl)}</div>
 			</div>
 			<div class="rounded-md border bg-background p-4">
-				<div class="text-xs text-muted-foreground">Total R</div>
-				<div class="mt-1 text-2xl font-semibold tabular-nums">{formatRM(stats.totalR)}</div>
+				<div class="text-xs text-muted-foreground">Avg risk/reward</div>
+				<div class="mt-1 text-2xl font-semibold tabular-nums">
+					{formatRiskReward(stats.avgRr)}
+				</div>
 			</div>
 			<div class="rounded-md border bg-background p-4">
 				<div class="text-xs text-muted-foreground">Win rate (closed)</div>
@@ -384,19 +668,11 @@
 					<div class="mt-1 text-sm text-muted-foreground">
 						{!session
 							? "Sign in to see your trades."
-							: trades.length === 0
-								? "Create your first trade to see it here."
-								: "Try adjusting your search or filters."}
-					</div>
-					<div class="mt-4 flex justify-center">
-						<Button
-							onclick={() => (newTradeOpen = true)}
-							class="cursor-pointer rounded-md bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
-							disabled={!session}
-						>
-							<PlusIcon />
-							New Trade
-						</Button>
+							: !accountStore.activeAccountId
+								? "Select an account in the sidebar to load trades."
+								: trades.length === 0
+									? "Create your first trade to see it here."
+									: "Try adjusting your search or filters."}
 					</div>
 				</div>
 			{:else}
@@ -410,21 +686,27 @@
 								<th class="text-right">Entry</th>
 								<th class="text-right">Exit</th>
 								<th class="text-right">Qty</th>
+								<th class="text-right">Stop</th>
+								<th class="text-right">Target</th>
+								<th class="text-right">R:R</th>
 								<th>Opened</th>
 								<th>Closed</th>
 								<th class="text-right">P&amp;L</th>
-								<th class="text-right">R</th>
+								<th class="w-14 text-right"> </th>
 							</tr>
 						</thead>
 						<tbody class="[&>tr:not(:last-child)]:border-b">
 							{#each filteredTrades as t (t.id)}
 								<tr class="[&>td]:px-4 [&>td]:py-3 hover:bg-muted/30">
 									<td class="font-medium">{t.symbol}</td>
-									<td class="capitalize">{t.side ?? "—"}</td>
+									<td class="capitalize">{normalizeSide(t.side) ?? "—"}</td>
 									<td class="capitalize">{t.status}</td>
 									<td class="text-right tabular-nums">{formatPrice(t.entry_price)}</td>
 									<td class="text-right tabular-nums">{formatPrice(t.exit_price)}</td>
 									<td class="text-right tabular-nums">{formatQty(t.quantity)}</td>
+									<td class="text-right tabular-nums">{formatPrice(t.stop_loss)}</td>
+									<td class="text-right tabular-nums">{formatPrice(t.take_profit)}</td>
+									<td class="text-right tabular-nums text-xs">{formatRiskReward(rowRiskReward(t))}</td>
 									<td class="tabular-nums text-xs">{formatWhen(t.opened_at)}</td>
 									<td class="tabular-nums text-xs">{formatWhen(t.closed_at)}</td>
 									<td class="text-right tabular-nums">
@@ -434,16 +716,16 @@
 											{formatUsd(num(t.pnl))}
 										</span>
 									</td>
-									<td class="text-right tabular-nums">
-										<span
-											class={num(t.r_multiple) == null
-												? ""
-												: (num(t.r_multiple) ?? 0) >= 0
-													? "text-emerald-600"
-													: "text-red-600"}
+									<td class="px-2 text-right">
+										<Button
+											variant="ghost"
+											size="icon"
+											class="h-8 w-8 shrink-0 cursor-pointer"
+											aria-label="Edit trade"
+											onclick={() => openTradeSheetEdit(t)}
 										>
-											{formatRM(num(t.r_multiple))}
-										</span>
+											<PencilSimpleIcon size={18} class="text-muted-foreground" />
+										</Button>
 									</td>
 								</tr>
 							{/each}
@@ -453,13 +735,19 @@
 			{/if}
 		</div>
 
-		<Sheet.Root bind:open={newTradeOpen}>
+		<Sheet.Root
+			bind:open={tradeSheetOpen}
+			onOpenChange={(open: boolean) => {
+				if (!open) closeTradeSheet();
+			}}
+		>
 			<Sheet.Content side="right" class="w-[min(100vw,520px)] sm:max-w-[520px]">
 				<Sheet.Header>
-					<Sheet.Title>New trade</Sheet.Title>
+					<Sheet.Title>{isEditingTrade ? "Edit trade" : "New trade"}</Sheet.Title>
 					<Sheet.Description>
-						Inserts into <code class="rounded bg-muted px-1 text-xs">trading.trades</code>. Requires
-						Supabase session and <code class="rounded bg-muted px-1 text-xs">app.profiles</code> for your user.
+						{isEditingTrade
+							? "Update details, for example when you close an open position."
+							: "Place trade details"}
 					</Sheet.Description>
 				</Sheet.Header>
 
@@ -472,7 +760,19 @@
 				<div class="px-4 pb-2 space-y-4">
 					<div class="space-y-1.5">
 						<div class="text-xs font-medium">Symbol</div>
-						<Input bind:value={formSymbol} placeholder="e.g. ES, BTCUSDT" class="rounded-md" />
+						<!-- <Input bind:value={formSymbol} placeholder="e.g. ES, BTCUSDT" class="rounded-md" /> -->
+                         <Select.Root type="single" bind:value={formSymbol}>
+                            <Select.Trigger class="w-full rounded-md cursor-pointer">
+                                <span class="capitalize">{formSymbol}</span>
+                            </Select.Trigger>
+                            <Select.Content class="rounded-md">
+                                {#each instrumentStore.instruments as instrument}
+                                    <Select.Item value={instrument.symbol} class="cursor-pointer">
+                                        {instrument.symbol}
+                                    </Select.Item>
+                                {/each}
+                            </Select.Content>
+                         </Select.Root>
 					</div>
 
 					<div class="grid grid-cols-2 gap-3">
@@ -526,6 +826,54 @@
 						</div>
 					</div>
 
+					<div class="grid grid-cols-2 gap-3">
+						<div class="space-y-1.5">
+							<div class="text-xs font-medium">Stop loss</div>
+							<Input bind:value={formStopLoss} inputmode="decimal" placeholder="Required" class="rounded-md" />
+						</div>
+						<div class="space-y-1.5">
+							<div class="text-xs font-medium">Take profit</div>
+							<Input bind:value={formTakeProfit} inputmode="decimal" placeholder="Required" class="rounded-md" />
+						</div>
+					</div>
+
+					<div class="space-y-1.5">
+						<div class="text-xs font-medium">Amount at risk ($)</div>
+						<Input
+							bind:value={formDollarRisk}
+							inputmode="decimal"
+							placeholder="e.g. 250"
+							class="rounded-md"
+						/>
+						<p class="text-[11px] text-muted-foreground leading-snug">
+							Max loss if your stop is hit. P&amp;L at full take profit uses this × your planned R:R.
+						</p>
+					</div>
+
+					<div class="rounded-md border bg-muted/30 px-3 py-2 text-xs space-y-1.5">
+						<div>
+							<div class="font-medium text-muted-foreground">Planned risk/reward</div>
+							<div class="mt-0.5 tabular-nums">
+								{formatRiskReward(formPlannedRR)}
+								{#if formPlannedRR == null && num(formEntryPrice) != null && num(formStopLoss) != null && num(formTakeProfit) != null}
+									<span class="text-muted-foreground"> (check side vs. stop/target levels)</span>
+								{/if}
+							</div>
+						</div>
+						<div class="flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
+							<div>
+								<span class="text-muted-foreground">At full target:</span>
+								<span class="ml-1 font-medium text-emerald-600">{formatUsd(pnlAtFullTarget)}</span>
+							</div>
+							<div>
+								<span class="text-muted-foreground">If stopped out:</span>
+								<span class="ml-1 font-medium text-red-600">
+									{formatUsd(stopLossPnL)}
+								</span>
+							</div>
+						</div>
+					</div>
+
 					<div class="space-y-1.5">
 						<div class="text-xs font-medium">Opened at</div>
 						<Input type="datetime-local" bind:value={formOpenedAt} class="rounded-md" />
@@ -549,16 +897,21 @@
 						</div>
 					{/if}
 
-					<div class="grid grid-cols-2 gap-3">
+					{#if formStatus === "closed"}
 						<div class="space-y-1.5">
 							<div class="text-xs font-medium">P&amp;L</div>
 							<Input bind:value={formPnl} inputmode="decimal" placeholder="Optional" class="rounded-md" />
+							<p class="text-[11px] text-muted-foreground leading-snug">
+								{#if closedPnlUsesExitPrice}
+									Recalculated from entry, exit, quantity, and side. Clear exit to use risk × R:R instead.
+								{:else}
+									Filled from risk × R:R when exit price is empty. Add an exit to derive P&amp;L from
+									prices × quantity.
+								{/if}
+								Edit the field if you need a different number (fees, scaling, partials).
+							</p>
 						</div>
-						<div class="space-y-1.5">
-							<div class="text-xs font-medium">R multiple</div>
-							<Input bind:value={formRMultiple} inputmode="decimal" placeholder="Optional" class="rounded-md" />
-						</div>
-					</div>
+					{/if}
 
 					<div class="space-y-1.5">
 						<div class="text-xs font-medium">Notes</div>
@@ -573,23 +926,15 @@
 
 				<Sheet.Footer class="border-t">
 					<div class="flex justify-end gap-2">
-						<Button
-							variant="outline"
-							class="rounded-md cursor-pointer"
-							onclick={() => {
-								newTradeOpen = false;
-								saveError = null;
-								resetNewTradeForm();
-							}}
-						>
+						<Button variant="outline" class="rounded-md cursor-pointer" onclick={closeTradeSheet}>
 							Cancel
 						</Button>
 						<Button
 							class="rounded-md bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground cursor-pointer"
-							disabled={!formSymbol.trim() || saving || !session}
-							onclick={createTradeFromForm}
+							disabled={!formSymbol.trim() || saving || !session || !accountStore.activeAccountId}
+							onclick={submitTradeForm}
 						>
-							{saving ? "Saving…" : "Create trade"}
+							{saving ? "Saving…" : isEditingTrade ? "Save changes" : "Create trade"}
 						</Button>
 					</div>
 				</Sheet.Footer>

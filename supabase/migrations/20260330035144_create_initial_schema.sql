@@ -1,3 +1,5 @@
+create extension if not exists pgcrypto;
+
 create schema if not exists trading;
 create schema if not exists analytics;
 
@@ -42,20 +44,32 @@ create table trading.accounts (
 create table trading.instruments (
     id uuid primary key default gen_random_uuid(),
 
-    symbol text not null, -- BTCUSDT, EURUSD, ES
-    market_type text not null, -- crypto, forex, futures
+    -- Identity
+    symbol text not null, -- e.g. NQ, MNQ, BTCUSDT
+    exchange text not null, -- e.g. CME, BINANCE
+    market_type text not null check (market_type in ('futures', 'perpetual')),
 
-    quote_currency text default 'USD',
+    -- Asset structure
+    base_currency text not null, -- e.g. BTC, ETH, NQ
+    quote_currency text not null, -- e.g. USD, USDT
 
-    price_step numeric not null,         -- e.g. 0.0001, 1
-    value_per_step numeric not null,     -- $ per step
+    -- Contract details
+    contract_size numeric(20,10) not null,   -- e.g. 20 for NQ, 0.001 BTC for crypto
+    tick_size numeric(20,10) not null check (tick_size > 0),
+    tick_value numeric(20,10) not null check (tick_value > 0),
 
-    contract_multiplier numeric,         -- futures
-    default_leverage numeric,
+    -- Futures-specific
+    expiry_date date null, -- NULL for perpetuals
 
-    created_at timestamptz default now(),
+    -- Trading parameters
+    max_leverage numeric(10,2) null check (max_leverage > 0),
 
-    unique(symbol, market_type)
+    -- Metadata
+    is_active boolean not null default true,
+    created_at timestamptz not null default now(),
+
+    -- Uniqueness
+    constraint instruments_unique unique (symbol, exchange, market_type, expiry_date)
 );
 
 create table trading.trades (
@@ -160,20 +174,20 @@ create policy "Users can insert their own accounts"
 on trading.accounts
 for insert
 to authenticated
-with check (auth.uid() = user_id);
+with check ((select auth.uid()) = user_id);
 
 create policy "Users can view their own accounts"
 on trading.accounts
 for select
 to authenticated
-using (auth.uid() = user_id);
+using ((select auth.uid()) = user_id);
 
 create policy "Users can update their own accounts"
 on trading.accounts
 for update
 to authenticated
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
 
 alter table trading.trades enable row level security;
 
@@ -181,26 +195,26 @@ create policy "Users can insert trades on their accounts"
 on trading.trades
 for insert
 to authenticated
-with check (auth.uid() = user_id);
+with check ((select auth.uid()) = user_id);
 
 create policy "Users can view trades on their accounts"
 on trading.trades
 for select
 to authenticated
-using (auth.uid() = user_id);
+using ((select auth.uid()) = user_id);
 
 create policy "Users can update trades on their accounts"
 on trading.trades
 for update
 to authenticated
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
 
 create policy "Users can delete trades on their accounts"
 on trading.trades
 for delete
 to authenticated
-using (auth.uid() = user_id);
+using ((select auth.uid()) = user_id);
 
 -- alter table trading.strategies enable row level security;
 -- alter table trading.mistakes enable row level security;

@@ -4,7 +4,7 @@
 	import NavUser from "./nav-user.svelte";
 	import AccountSwitcher from "./account-switcher.svelte";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
-	import { type ComponentProps } from "svelte";
+	import { onMount, type ComponentProps } from "svelte";
 	import BookOpenIcon from "@lucide/svelte/icons/book-open";
 	import ChartPieIcon from "@lucide/svelte/icons/chart-pie";
 	import FrameIcon from "@lucide/svelte/icons/frame";
@@ -12,10 +12,17 @@
 	import Settings2Icon from "@lucide/svelte/icons/settings-2";
 	import SquareTerminalIcon from "@lucide/svelte/icons/square-terminal";
     import { accountStore } from "$lib/stores/accounts.svelte";
+    import { instrumentStore } from "$lib/stores/instruments.svelte";
+	import { supabase } from "$lib/supabase/client";
 
     let { user, ref = $bindable(null), collapsible = "icon", ...restProps }: ComponentProps<typeof Sidebar.Root> & {
 		user: { id: string; name: string; email: string; avatar: string };
 	} = $props();
+
+    onMount(() => {
+        if(!user) return;
+        instrumentStore.getInstruments(supabase);
+    });
 
     const sidebarData = {
 		navMain: [

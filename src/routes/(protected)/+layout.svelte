@@ -51,6 +51,8 @@
 
 				session = next;
 				ready = true;
+
+                accountStore.getAllAccounts(supabase);
 			});
 			holder.subscription = data.subscription;
 		})();
@@ -63,7 +65,6 @@
 
         accountStore.clear();
         tradeStore.clear();
-        accountStore.getAllAccounts(supabase);
     });
 
 	const sidebarUser = $derived.by(() => {
@@ -90,8 +91,6 @@
 		};
 	});
 
-	
-        
 </script>
 
 {#if !ready}

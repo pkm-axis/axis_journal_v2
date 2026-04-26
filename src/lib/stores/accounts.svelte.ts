@@ -77,7 +77,8 @@ function createAccountStore() {
                     throw new Error(result.message || "Failed to create account");
                 }
 
-                accountStore.getAllAccounts(supabase);
+                // update local state
+                accounts = [...accounts, result.data];
             } catch(e) {
                 console.error("Error getting accounts:", e)
             } finally {
