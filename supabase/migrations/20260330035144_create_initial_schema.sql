@@ -146,27 +146,27 @@ create table trading.trade_mistakes (
   primary key (trade_id, mistake_id)
 );
 
-create table trading.trade_images (
-  id uuid primary key default gen_random_uuid(),
-  trade_id uuid references trading.trades(id) on delete cascade,
+-- create table trading.trade_images (
+--   id uuid primary key default gen_random_uuid(),
+--   trade_id uuid references trading.trades(id) on delete cascade,
 
-  path text not null,
-  type text, -- before, after, execution
+--   path text not null,
+--   type text, -- before, after, execution
 
-  created_at timestamptz default now()
-);
+--   created_at timestamptz default now()
+-- );
 
-create table trading.trade_plans (
-  id uuid primary key default gen_random_uuid(),
-  trade_id uuid references trading.trades(id) on delete cascade,
+-- create table trading.trade_plans (
+--   id uuid primary key default gen_random_uuid(),
+--   trade_id uuid references trading.trades(id) on delete cascade,
 
-  planned_entry numeric,
-  planned_stop numeric,
-  planned_target numeric,
-  planned_rr numeric,
+--   planned_entry numeric,
+--   planned_stop numeric,
+--   planned_target numeric,
+--   planned_rr numeric,
 
-  notes text
-);
+--   notes text
+-- );
 
 alter table trading.accounts enable row level security;
 
