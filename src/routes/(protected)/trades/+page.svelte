@@ -109,6 +109,11 @@
 	let formNotes = $state("");
 	let formStrategyIds = $state<string[]>([]);
 	let formMistakeIds = $state<string[]>([]);
+	/** Optional: when filled, derives stop loss from entry, qty, side, and instrument. */
+	let formRiskInput = $state("");
+	/** Optional: when filled, derives take profit from entry, qty, side, and instrument. */
+	let formProfitInput = $state("");
+	let showRiskProfit = $state(false);
 
 	function resetNewTradeForm() {
 		formSymbol = "";
@@ -126,6 +131,9 @@
 		formNotes = "";
 		formStrategyIds = [];
 		formMistakeIds = [];
+		formRiskInput = "";
+		formProfitInput = "";
+		showRiskProfit = false;
 	}
 
 	function closeTradeSheet() {
@@ -161,6 +169,8 @@
 		formNotes = t.notes ?? "";
 		formStrategyIds = [...(t.strategy_ids ?? [])];
 		formMistakeIds = [...(t.mistake_ids ?? [])];
+		formRiskInput = "";
+		formProfitInput = "";
 		tradeSheetOpen = true;
 	}
 
@@ -294,6 +304,46 @@
         const qty = num(formQuantity);
         if (entry == null || exit == null || qty == null) return null;
         return instrumentPnl(selectedInstrument, formSide, entry, exit, qty).toFixed(2);
+    });
+
+    /** Stop price implied by a desired dollar risk, snapped to tick size. */
+    const impliedStop = $derived.by(() => {
+        const risk = num(formRiskInput);
+        const entry = num(formEntryPrice);
+        const qty = num(formQuantity);
+        if (risk == null || risk <= 0 || entry == null || qty == null || qty <= 0 || !selectedInstrument) return null;
+        const pv = (selectedInstrument.tick_value / selectedInstrument.tick_size) * (selectedInstrument.contract_size ?? 1);
+        if (!Number.isFinite(pv) || pv <= 0) return null;
+        const distance = risk / (pv * qty);
+        const raw = formSide === "long" ? entry - distance : entry + distance;
+        const tick = selectedInstrument.tick_size;
+        return tick > 0 ? Math.round(raw / tick) * tick : raw;
+    });
+
+    // Auto-fill stop loss whenever implied stop changes from risk input
+    $effect(() => {
+        if (impliedStop == null) return;
+        formStopLoss = String(Number(impliedStop.toFixed(8)));
+    });
+
+    /** Take profit price implied by a desired profit target, snapped to tick size. */
+    const impliedTakeProfit = $derived.by(() => {
+        const profit = num(formProfitInput);
+        const entry = num(formEntryPrice);
+        const qty = num(formQuantity);
+        if (profit == null || profit <= 0 || entry == null || qty == null || qty <= 0 || !selectedInstrument) return null;
+        const pv = (selectedInstrument.tick_value / selectedInstrument.tick_size) * (selectedInstrument.contract_size ?? 1);
+        if (!Number.isFinite(pv) || pv <= 0) return null;
+        const distance = profit / (pv * qty);
+        const raw = formSide === "long" ? entry + distance : entry - distance;
+        const tick = selectedInstrument.tick_size;
+        return tick > 0 ? Math.round(raw / tick) * tick : raw;
+    });
+
+    // Auto-fill take profit whenever implied target changes from profit input
+    $effect(() => {
+        if (impliedTakeProfit == null) return;
+        formTakeProfit = String(Number(impliedTakeProfit.toFixed(8)));
     });
 
     function priceMovePnl(from: number, to: number) {
@@ -731,7 +781,7 @@
 				if (!open) closeTradeSheet();
 			}}
 		>
-			<Sheet.Content side="right" class="w-[min(100vw,520px)] sm:max-w-[520px]">
+			<Sheet.Content side="right" class="w-[min(100vw,600px)] sm:max-w-[600px]">
 				<Sheet.Header>
 					<Sheet.Title>{isEditingTrade ? "Edit trade" : "New trade"}</Sheet.Title>
 					<Sheet.Description>
@@ -818,14 +868,81 @@
 
 					<div class="grid grid-cols-2 gap-3">
 						<div class="space-y-1.5">
-							<div class="text-xs font-medium">Stop loss</div>
-							<Input bind:value={formStopLoss} inputmode="decimal" placeholder="Required" class="rounded-md" />
+							<div class="flex items-baseline justify-between">
+								<div class="text-xs font-medium">Stop loss</div>
+							</div>
+							<Input
+								bind:value={formStopLoss}
+								inputmode="decimal"
+								placeholder="Required"
+								class="rounded-md"
+								oninput={() => { formRiskInput = ""; }}
+							/>
 						</div>
 						<div class="space-y-1.5">
-							<div class="text-xs font-medium">Take profit</div>
-							<Input bind:value={formTakeProfit} inputmode="decimal" placeholder="Required" class="rounded-md" />
+							<div class="flex items-baseline justify-between">
+								<div class="text-xs font-medium">Take profit</div>
+							</div>
+							<Input
+								bind:value={formTakeProfit}
+								inputmode="decimal"
+								placeholder="Required"
+								class="rounded-md"
+								oninput={() => { formProfitInput = ""; }}
+							/>
 						</div>
 					</div>
+
+					<label class="flex items-center gap-2 cursor-pointer select-none">
+						<input type="checkbox" bind:checked={showRiskProfit} class="rounded border-input cursor-pointer" />
+						<span class="text-xs text-muted-foreground">Manually add risk and profit target</span>
+					</label>
+
+					{#if showRiskProfit}
+					<div class="grid grid-cols-2 gap-3">
+						<div class="space-y-1.5">
+							<div class="text-xs font-medium">
+								Risk ($)
+							</div>
+							<Input
+								bind:value={formRiskInput}
+								inputmode="decimal"
+								placeholder="e.g. 250"
+								class="rounded-md"
+							/>
+							{#if impliedStop != null}
+								<p class="text-[11px] text-emerald-700 dark:text-emerald-400 leading-snug">
+									→ Stop {impliedStop.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+								</p>
+							{:else if formRiskInput && (num(formEntryPrice) == null || num(formQuantity) == null || !selectedInstrument)}
+								<p class="text-[11px] text-muted-foreground leading-snug">
+									Fill in entry, quantity, and instrument first.
+								</p>
+							{/if}
+						</div>
+
+						<div class="space-y-1.5">
+							<div class="text-xs font-medium">
+								Profit ($)
+							</div>
+							<Input
+								bind:value={formProfitInput}
+								inputmode="decimal"
+								placeholder="e.g. 500"
+								class="rounded-md"
+							/>
+							{#if impliedTakeProfit != null}
+								<p class="text-[11px] text-emerald-700 dark:text-emerald-400 leading-snug">
+									→ Target {impliedTakeProfit.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+								</p>
+							{:else if formProfitInput && (num(formEntryPrice) == null || num(formQuantity) == null || !selectedInstrument)}
+								<p class="text-[11px] text-muted-foreground leading-snug">
+									Fill in entry, quantity, and instrument first.
+								</p>
+							{/if}
+						</div>
+					</div>
+					{/if}
 
 					<div class="rounded-md border bg-muted/30 px-3 py-2.5 text-xs">
 						<div class="grid grid-cols-3 gap-3 tabular-nums">

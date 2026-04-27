@@ -213,7 +213,7 @@
 				if (!o) closeSheet();
 			}}
 		>
-			<Sheet.Content side="right" class="w-[min(100vw,480px)] sm:max-w-[480px]">
+			<Sheet.Content side="right" class="w-[min(100vw,560px)] sm:max-w-[560px]">
 				<Sheet.Header>
 					<Sheet.Title>
 						{isEditing ? "Edit" : "New"}

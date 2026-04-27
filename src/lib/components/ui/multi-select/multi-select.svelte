@@ -43,7 +43,7 @@
 			className
 		)}
 	>
-		<div class="flex flex-wrap items-center gap-1 truncate text-left">
+		<div class="flex flex-wrap items-center gap-1 truncate text-left text-xs">
 			{#if selected.length === 0}
 				<span class="text-muted-foreground">{placeholder}</span>
 			{:else}
