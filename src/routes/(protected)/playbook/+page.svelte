@@ -157,7 +157,7 @@
 			</p>
 		</div>
 
-		<div class="grid gap-6 lg:grid-cols-2">
+		<div class="flex flex-col gap-6">
 			<section class="space-y-3">
 				<div class="flex items-center justify-between">
 					<div>
