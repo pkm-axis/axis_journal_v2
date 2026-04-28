@@ -70,6 +70,10 @@
                         title: "Expectancy Calculator",
                         url: "/tools/expectancy",
                     },
+                    {
+						title: "Trade Duration Analyzer",
+						url: "/tools/duration",
+					},
 					{
 						title: "Risk Calculator",
 						url: "/coming-soon?section=Risk+Calculator",
@@ -89,10 +93,6 @@
                     {
 						title: "Compounding Calculator",
 						url: "/coming-soon?section=Compounding+Calculator",
-					},
-                    {
-						title: "Trade Duration Analyzer",
-						url: "/coming-soon?section=Trade+Duration+Analyzer",
 					},
                     {
                         title: "Risk-to-Reward Planner",
