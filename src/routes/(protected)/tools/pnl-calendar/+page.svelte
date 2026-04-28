@@ -4,12 +4,11 @@
 	import * as Breadcrumb from "$lib/components/ui/breadcrumb/index.js";
 	import { ScrollArea } from "$lib/components/ui/scroll-area";
 	import { Button } from "$lib/components/ui/button";
-	import * as Sheet from "$lib/components/ui/sheet/index.js";
-	import { CaretLeftIcon, CaretRightIcon, ShareNetworkIcon, DownloadSimpleIcon } from "phosphor-svelte";
+	import { CaretLeftIcon, CaretRightIcon, ShareNetworkIcon } from "phosphor-svelte";
 	import { supabase } from "$lib/supabase/client";
 	import { tradeStore } from "$lib/stores/trades.svelte";
 	import { accountStore } from "$lib/stores/accounts.svelte";
-	import { toPng } from "html-to-image";
+	import PnlShareDialog from "$lib/components/pnl-share-sheet/pnl-share-dialog.svelte";
 
 	const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 	const MONTHS = [
@@ -22,8 +21,6 @@
 	let viewYear = $state(today.getFullYear());
 	let viewMonth = $state(today.getMonth());
 	let shareOpen = $state(false);
-	let shareCardEl = $state<HTMLDivElement | null>(null);
-	let downloading = $state(false);
 
 	function prevMonth() {
 		if (viewMonth === 0) { viewMonth = 11; viewYear--; }
@@ -107,14 +104,15 @@
 	/** Day bars for the share card mini chart — only days in the viewed month. */
 	const dayBars = $derived.by(() => {
 		const prefix = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}`;
-		const entries: { key: string; pnl: number }[] = [];
+		const entries: { key: string; pnl: number; pct: number }[] = [];
 		for (const [key, pnl] of pnlByDay) {
-			if (key.startsWith(prefix)) entries.push({ key, pnl });
+			if (key.startsWith(prefix)) entries.push({ key, pnl, pct: 0 });
 		}
 		entries.sort((a, b) => a.key.localeCompare(b.key));
 		if (entries.length === 0) return entries;
 		const max = Math.max(...entries.map((e) => Math.abs(e.pnl)));
-		return entries.map((e) => ({ ...e, pct: max > 0 ? Math.abs(e.pnl) / max : 0 }));
+		entries.forEach((e) => { e.pct = max > 0 ? Math.abs(e.pnl) / max : 0; });
+		return entries;
 	});
 
 	function formatUsd(v: number | null, sign = true) {
@@ -132,20 +130,6 @@
 			date.getMonth() === today.getMonth() &&
 			date.getDate() === today.getDate()
 		);
-	}
-
-	async function downloadCard() {
-		if (!shareCardEl) return;
-		downloading = true;
-		try {
-			const dataUrl = await toPng(shareCardEl, { pixelRatio: 2 });
-			const a = document.createElement("a");
-			a.href = dataUrl;
-			a.download = `pnl-${MONTHS[viewMonth].toLowerCase()}-${viewYear}.png`;
-			a.click();
-		} finally {
-			downloading = false;
-		}
 	}
 
 	onMount(async () => {
@@ -279,101 +263,11 @@
 	</div>
 </ScrollArea>
 
-<!-- Share sheet -->
-<Sheet.Root bind:open={shareOpen} onOpenChange={(o) => { if (!o) shareOpen = false; }}>
-	<Sheet.Content side="right" class="w-[min(100vw,520px)] sm:max-w-[520px]">
-		<Sheet.Header>
-			<Sheet.Title>Share P&L Card</Sheet.Title>
-			<Sheet.Description>
-				Download your monthly summary as an image to share anywhere.
-			</Sheet.Description>
-		</Sheet.Header>
-
-		<div class="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
-			<!-- Card preview -->
-			<div
-				bind:this={shareCardEl}
-				class="relative overflow-hidden rounded-xl p-6 select-none"
-				style="background: linear-gradient(135deg, #0f1117 0%, #1a1f2e 100%); font-family: 'JetBrains Mono Variable', monospace;"
-			>
-				<!-- Top row: branding + period -->
-				<div class="flex items-center justify-between mb-6">
-					<div class="flex items-center gap-2">
-						<div class="flex size-7 shrink-0 items-center justify-center" style="background:#6b8f6e;">
-							<svg width="12" height="12" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-								<path d="M7 1L13 13H1L7 1Z" fill="white" />
-							</svg>
-						</div>
-						<span style="color:#e2e8f0; font-size:13px; font-weight:700; letter-spacing:0.15em;">AXIS</span>
-					</div>
-					<span style="color:#64748b; font-size:11px; font-weight:500;">
-						{MONTHS[viewMonth]} {viewYear}
-					</span>
-				</div>
-
-				<!-- Big P&L number -->
-				<div class="mb-1" style="color:#94a3b8; font-size:11px; font-weight:500; letter-spacing:0.05em; text-transform:uppercase;">
-					Net P&L
-				</div>
-				<div class="mb-6" style={`font-size: clamp(2rem, 8vw, 3rem); font-weight:700; letter-spacing:-0.02em; line-height:1; color:${monthStats.total > 0 ? '#4ade80' : monthStats.total < 0 ? '#f87171' : '#e2e8f0'};`}>
-					{monthStats.tradingDays === 0 ? "—" : formatUsd(monthStats.total)}
-				</div>
-
-				<!-- Mini bar chart -->
-				{#if dayBars.length > 0}
-					<div class="flex items-end gap-0.5 mb-6" style="height:40px;">
-						{#each dayBars as bar}
-							<div
-								class="flex-1 rounded-sm"
-								style={`height:${Math.max(4, bar.pct * 40)}px; background:${bar.pnl > 0 ? '#4ade8055' : '#f8717155'}; border-top:2px solid ${bar.pnl > 0 ? '#4ade80' : '#f87171'};`}
-							></div>
-						{/each}
-					</div>
-				{/if}
-
-				<!-- Stats row -->
-				<div class="grid grid-cols-3 gap-3">
-					<div>
-						<div style="color:#64748b; font-size:10px; font-weight:500; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:2px;">Trading days</div>
-						<div style="color:#e2e8f0; font-size:16px; font-weight:600;">{monthStats.tradingDays || "—"}</div>
-					</div>
-					<div>
-						<div style="color:#64748b; font-size:10px; font-weight:500; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:2px;">Win rate</div>
-						<div style="color:#e2e8f0; font-size:16px; font-weight:600;">
-							{monthStats.winRate == null ? "—" : `${Math.round(monthStats.winRate * 100)}%`}
-						</div>
-					</div>
-					<div>
-						<div style="color:#64748b; font-size:10px; font-weight:500; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:2px;">Best day</div>
-						<div style="color:#4ade80; font-size:16px; font-weight:600;">{formatUsd(monthStats.best)}</div>
-					</div>
-				</div>
-
-				<!-- Bottom divider + watermark -->
-				<div style="margin-top:20px; padding-top:12px; border-top:1px solid #1e293b; display:flex; justify-content:flex-end;">
-					<span style="color:#334155; font-size:10px; letter-spacing:0.05em;">axis journal</span>
-				</div>
-			</div>
-
-			<p class="text-xs text-muted-foreground">
-				Only closed trades for {MONTHS[viewMonth]} {viewYear} are included.
-			</p>
-		</div>
-
-		<Sheet.Footer class="border-t">
-			<div class="flex justify-end gap-2">
-				<Button variant="outline" class="rounded-md cursor-pointer" onclick={() => (shareOpen = false)}>
-					Cancel
-				</Button>
-				<Button
-					class="rounded-md bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer"
-					disabled={downloading}
-					onclick={downloadCard}
-				>
-					<DownloadSimpleIcon size={16} />
-					{downloading ? "Saving…" : "Download PNG"}
-				</Button>
-			</div>
-		</Sheet.Footer>
-	</Sheet.Content>
-</Sheet.Root>
+<PnlShareDialog
+	variant="month"
+	bind:open={shareOpen}
+	month={viewMonth}
+	year={viewYear}
+	stats={monthStats}
+	dayBars={dayBars}
+/>

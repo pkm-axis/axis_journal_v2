@@ -16,6 +16,7 @@
 		PencilSimpleIcon,
 		PlusIcon,
 		PulseIcon,
+		ShareNetworkIcon,
 		TrashIcon
 	} from "phosphor-svelte";
 	import * as Select from "$lib/components/ui/select/index.js";
@@ -28,6 +29,7 @@
 	import { mistakeStore } from "$lib/stores/mistakes.svelte";
 	import { MultiSelect } from "$lib/components/ui/multi-select";
 	import { Skeleton } from "$lib/components/ui/skeleton";
+	import PnlShareDialog from "$lib/components/pnl-share-sheet/pnl-share-dialog.svelte";
 
 	interface TradeRow {
 		id: string;
@@ -67,6 +69,13 @@
 	let saveError = $state<string | null>(null);
 	let saving = $state(false);
 	let deleting = $state(false);
+	let shareSheetOpen = $state(false);
+	let sharingTrade = $state<TradeRow | null>(null);
+
+	function openShareSheet(t: TradeRow) {
+		sharingTrade = t;
+		shareSheetOpen = true;
+	}
 
 	async function deleteTrade() {
 		if (!editingTradeId) return;
@@ -808,15 +817,26 @@
 										{/if}
 									</td>
 									<td class="px-2 text-right whitespace-nowrap text-xs">
-										<Button
-											variant="ghost"
-											size="icon"
-											class="h-8 w-8 shrink-0 cursor-pointer"
-											aria-label="Edit trade"
-											onclick={() => openTradeSheetEdit(t)}
-										>
-											<PencilSimpleIcon size={18} class="text-muted-foreground" />
-										</Button>
+										<div class="inline-flex items-center gap-0.5">
+											<Button
+												variant="ghost"
+												size="icon"
+												class="h-8 w-8 shrink-0 cursor-pointer"
+												aria-label="Share trade"
+												onclick={() => openShareSheet(t)}
+											>
+												<ShareNetworkIcon size={16} class="text-muted-foreground" />
+											</Button>
+											<Button
+												variant="ghost"
+												size="icon"
+												class="h-8 w-8 shrink-0 cursor-pointer"
+												aria-label="Edit trade"
+												onclick={() => openTradeSheetEdit(t)}
+											>
+												<PencilSimpleIcon size={18} class="text-muted-foreground" />
+											</Button>
+										</div>
 									</td>
 								</tr>
 							{/each}
@@ -1120,5 +1140,23 @@
 				</Sheet.Footer>
 			</Sheet.Content>
 		</Sheet.Root>
+
+		{#if sharingTrade}
+			{@const t = sharingTrade}
+			<PnlShareDialog
+				variant="trade"
+				bind:open={shareSheetOpen}
+				symbol={t.symbol}
+				side={normalizeSide(t.side)}
+				status={t.status}
+				pnl={num(t.pnl) ?? null}
+				entryPrice={num(t.entry_price) ?? null}
+				exitPrice={num(t.exit_price) ?? null}
+				quantity={num(t.quantity) ?? null}
+				rr={rowRiskReward(t)}
+				openedAt={t.opened_at}
+				closedAt={t.closed_at}
+			/>
+		{/if}
 	</div>
 </ScrollArea>
