@@ -10,6 +10,7 @@
 	import Input from "../ui/input/input.svelte";
     import { supabase } from '$lib/supabase/client'
     import { accountStore, type Account } from "$lib/stores/accounts.svelte";
+    import { Skeleton } from "$lib/components/ui/skeleton";
 
     const sidebar = useSidebar();
 
@@ -86,7 +87,7 @@
 					<Sidebar.MenuButton
 						{...props}
 						size="lg"
-						class="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground flex justify-center items-center"
+						class="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground flex justify-center items-center border-2 rounded-md"
 					>
 						{#if sidebar.state !== "collapsed"}
                             <div class="grid flex-1 text-start text-sm leading-tight cursor-pointer">

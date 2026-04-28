@@ -7,6 +7,7 @@
 	import { ScrollArea } from "$lib/components/ui/scroll-area";
 	import * as Sheet from "$lib/components/ui/sheet/index.js";
 	import { PencilSimpleIcon, PlusIcon, TrashIcon } from "phosphor-svelte";
+	import { Skeleton } from "$lib/components/ui/skeleton";
 	import { supabase } from "$lib/supabase/client";
 	import { strategyStore, type Strategy } from "$lib/stores/strategies.svelte";
 	import { mistakeStore, type Mistake } from "$lib/stores/mistakes.svelte";
@@ -98,7 +99,20 @@
 )}
 	<div class="rounded-md border bg-background">
 		{#if loading}
-			<div class="p-10 text-center text-sm text-muted-foreground">Loading…</div>
+			<ul class="divide-y">
+				{#each [0, 1, 2, 3] as _}
+					<li class="flex items-start justify-between gap-3 px-4 py-3">
+						<div class="min-w-0 flex-1 space-y-1.5">
+							<Skeleton class="h-3.5 w-32" />
+							<Skeleton class="h-3 w-48" />
+						</div>
+						<div class="flex shrink-0 items-center gap-1">
+							<Skeleton class="h-8 w-8" />
+							<Skeleton class="h-8 w-8" />
+						</div>
+					</li>
+				{/each}
+			</ul>
 		{:else if items.length === 0}
 			<div class="p-10 text-center">
 				<div class="text-sm font-medium">{emptyTitle}</div>

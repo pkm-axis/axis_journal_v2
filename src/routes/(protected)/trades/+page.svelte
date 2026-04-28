@@ -27,6 +27,7 @@
 	import { strategyStore } from "$lib/stores/strategies.svelte";
 	import { mistakeStore } from "$lib/stores/mistakes.svelte";
 	import { MultiSelect } from "$lib/components/ui/multi-select";
+	import { Skeleton } from "$lib/components/ui/skeleton";
 
 	interface TradeRow {
 		id: string;
@@ -596,6 +597,14 @@
 		</div>
 
 		<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+			{#if loading}
+				{#each [0, 1, 2, 3] as _}
+					<div class="rounded-md border bg-background p-4">
+						<Skeleton class="h-3 w-20" />
+						<Skeleton class="mt-2 h-7 w-28" />
+					</div>
+				{/each}
+			{:else}
 			<div class="rounded-md border bg-background p-4">
 				<div class="text-xs text-muted-foreground">Trades</div>
 				<div class="mt-1 text-2xl font-semibold tabular-nums">{stats.count}</div>
@@ -631,6 +640,7 @@
 					{stats.winRate == null ? "—" : `${Math.round(stats.winRate * 100)}%`}
 				</div>
 			</div>
+			{/if}
 		</div>
 
 		<div class="rounded-md border bg-background">
@@ -646,7 +656,48 @@
 			</div>
 
 			{#if loading}
-				<div class="p-10 text-center text-sm text-muted-foreground">Loading trades…</div>
+				<div class="w-full overflow-x-auto">
+					<table class="w-full text-sm">
+						<thead class="bg-muted/30 text-muted-foreground">
+							<tr class="[&>th]:px-4 [&>th]:py-2 [&>th]:text-left [&>th]:font-medium">
+								<th class="w-24 whitespace-nowrap">Symbol</th>
+								<th class="whitespace-nowrap">Side</th>
+								<th class="whitespace-nowrap">Status</th>
+								<th class="text-right whitespace-nowrap">Entry</th>
+								<th class="text-right whitespace-nowrap">Exit</th>
+								<th class="text-right whitespace-nowrap">Qty</th>
+								<th class="text-right whitespace-nowrap">Stop</th>
+								<th class="text-right whitespace-nowrap">Target</th>
+								<th class="text-right whitespace-nowrap">R:R</th>
+								<th class="whitespace-nowrap">Opened</th>
+								<th class="whitespace-nowrap">Closed</th>
+								<th class="text-right whitespace-nowrap">P&amp;L</th>
+								<th class="whitespace-nowrap">Tags</th>
+								<th class="w-14 text-right whitespace-nowrap">Actions</th>
+							</tr>
+						</thead>
+						<tbody class="[&>tr:not(:last-child)]:border-b">
+							{#each [0, 1, 2, 3, 4, 5] as _}
+								<tr class="[&>td]:px-4 [&>td]:py-3">
+									<td><Skeleton class="h-3.5 w-14" /></td>
+									<td><Skeleton class="h-5 w-12 rounded-md" /></td>
+									<td><Skeleton class="h-5 w-14 rounded-md" /></td>
+									<td class="text-right"><Skeleton class="ml-auto h-3.5 w-16" /></td>
+									<td class="text-right"><Skeleton class="ml-auto h-3.5 w-10" /></td>
+									<td class="text-right"><Skeleton class="ml-auto h-3.5 w-8" /></td>
+									<td class="text-right"><Skeleton class="ml-auto h-3.5 w-16" /></td>
+									<td class="text-right"><Skeleton class="ml-auto h-3.5 w-16" /></td>
+									<td class="text-right"><Skeleton class="ml-auto h-3.5 w-10" /></td>
+									<td><Skeleton class="h-3.5 w-28" /></td>
+									<td><Skeleton class="h-3.5 w-10" /></td>
+									<td class="text-right"><Skeleton class="ml-auto h-3.5 w-16" /></td>
+									<td><Skeleton class="h-3.5 w-10" /></td>
+									<td><Skeleton class="ml-auto h-7 w-7" /></td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
 			{:else if filteredTrades.length === 0}
 				<div class="p-10 text-center">
 					<div class="text-sm font-medium">No trades found</div>
