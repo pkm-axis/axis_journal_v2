@@ -102,19 +102,14 @@
 		],
 		analytics: [
 			{
-				name: "Account Performance",
-				url: "/coming-soon?section=Account+Performance",
-				icon: FrameIcon,
-			},
-			{
 				name: "Cross-account Analysis",
-				url: "/coming-soon?section=Cross-account+Analysis",
+				url: "/analytics/cross-account",
 				icon: ChartPieIcon,
 			},
 			{
-				name: "Strategy & Mistake Performance",
-				url: "/coming-soon?section=Strategy+%26+Mistake+Performance",
-				icon: MapIcon,
+				name: "Risk & Streaks",
+				url: "/analytics/risk-streaks",
+				icon: FrameIcon,
 			},
 		],
 	};
