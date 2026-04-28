@@ -66,6 +66,10 @@
 						title: "P&L Calendar",
 						url: "/tools/pnl-calendar",
 					},
+                    {
+                        title: "Expectancy Calculator",
+                        url: "/tools/expectancy",
+                    },
 					{
 						title: "Risk Calculator",
 						url: "/coming-soon?section=Risk+Calculator",
@@ -90,10 +94,6 @@
 						title: "Trade Duration Analyzer",
 						url: "/coming-soon?section=Trade+Duration+Analyzer",
 					},
-                    {
-                        title: "Expectancy Calculator",
-                        url: "/coming-soon?section=Expectancy+Calculator",
-                    },
                     {
                         title: "Risk-to-Reward Planner",
                         url: "/coming-soon?section=Risk-to-Reward+Planner",
