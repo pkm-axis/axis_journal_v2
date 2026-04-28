@@ -63,6 +63,10 @@
 				icon: BookOpenIcon,
 				items: [
 					{
+						title: "P&L Calendar",
+						url: "/tools/pnl-calendar",
+					},
+					{
 						title: "Risk Calculator",
 						url: "/coming-soon?section=Risk+Calculator",
 					},
