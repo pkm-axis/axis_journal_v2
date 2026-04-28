@@ -170,7 +170,7 @@
 			</form>
 			<div class="bg-muted relative hidden md:block">
 				<img
-					src="/image.png"
+					src="/axis-main.png"
 					alt=""
 					class="absolute inset-0 h-full w-full object-cover dark:brightness-[0.2] dark:grayscale"
 				/>
