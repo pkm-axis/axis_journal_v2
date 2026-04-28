@@ -76,19 +76,7 @@
 					},
 					{
 						title: "Risk Calculator",
-						url: "/coming-soon?section=Risk+Calculator",
-					},
-					{
-						title: "Position Size Calculator",
-						url: "/coming-soon?section=Position+Size+Calculator",
-					},
-					{
-						title: "R-Multiple Calculator",
-						url: "/coming-soon?section=R-Multiple+Calculator",
-					},
-					{
-						title: "Drawdown Calculator",
-						url: "/coming-soon?section=Drawdown+Calculator",
+						url: "/tools/risk",
 					},
                     {
 						title: "Compounding Calculator",
