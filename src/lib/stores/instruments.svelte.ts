@@ -73,8 +73,43 @@ function createInstrumentStore() {
             } finally {
                 loading = false;
             }
-        }
-    }
+        },
+        createInstrument: async (supabase: SupabaseClient, payload: Partial<Instrument>) => {
+            const token = await getAuthToken(supabase);
+            const response = await fetch(`/api/instruments/create`, {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify(payload),
+            });
+            const result = await response.json();
+            if (!result.success) throw new Error(result.message ?? "Failed to create instrument");
+            await instrumentStore.getInstruments(supabase);
+        },
+        updateInstrument: async (supabase: SupabaseClient, id: string, payload: Partial<Instrument>) => {
+            const token = await getAuthToken(supabase);
+            const response = await fetch(`/api/instruments/${encodeURIComponent(id)}`, {
+                method: "PATCH",
+                credentials: "include",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify(payload),
+            });
+            const result = await response.json();
+            if (!result.success) throw new Error(result.message ?? "Failed to update instrument");
+            await instrumentStore.getInstruments(supabase);
+        },
+        deleteInstrument: async (supabase: SupabaseClient, id: string) => {
+            const token = await getAuthToken(supabase);
+            const response = await fetch(`/api/instruments/${encodeURIComponent(id)}`, {
+                method: "DELETE",
+                credentials: "include",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            });
+            const result = await response.json();
+            if (!result.success) throw new Error(result.message ?? "Failed to delete instrument");
+            await instrumentStore.getInstruments(supabase);
+        },
+    };
 }
 
 export const instrumentStore = createInstrumentStore();

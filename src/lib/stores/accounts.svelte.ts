@@ -84,8 +84,38 @@ function createAccountStore() {
             } finally {
                 loading = false;
             }
-        }
-    }
+        },
+        updateAccount: async (supabase: SupabaseClient, id: string, payload: { name?: string; account_type?: string }) => {
+            const token = await getAuthToken(supabase);
+            const response = await fetch(`/api/accounts/${encodeURIComponent(id)}`, {
+                method: "PATCH",
+                credentials: "include",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify(payload),
+            });
+            const result = await response.json();
+            if (!result.success) throw new Error(result.message ?? "Failed to update account");
+            await accountStore.getAllAccounts(supabase);
+        },
+        deleteAccount: async (supabase: SupabaseClient, id: string) => {
+            const token = await getAuthToken(supabase);
+            const response = await fetch(`/api/accounts/${encodeURIComponent(id)}`, {
+                method: "DELETE",
+                credentials: "include",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                },
+            });
+            const result = await response.json();
+            if (!result.success) throw new Error(result.message ?? "Failed to delete account");
+            if (activeAccountId === id) activeAccountId = null;
+            await accountStore.getAllAccounts(supabase);
+        },
+    };
 }
 
 export const accountStore = createAccountStore();

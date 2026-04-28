@@ -4,6 +4,17 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		%sveltekit.head%
+		<script>
+			// Apply persisted theme before paint to avoid FOUC.
+			(() => {
+				try {
+					const stored = localStorage.getItem("axis:theme");
+					const theme = stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
+					const dark = theme === "dark" || (theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+					if (dark) document.documentElement.classList.add("dark");
+				} catch {}
+			})();
+		</script>
 	</head>
 	<body data-sveltekit-preload-data="hover">
 		<div style="display: contents">%sveltekit.body%</div>

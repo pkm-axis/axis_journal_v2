@@ -94,8 +94,24 @@
 				icon: Settings2Icon,
 				items: [
 					{
-						title: "General",
-						url: "/coming-soon?section=Settings",
+						title: "Profile",
+						url: "/settings/profile",
+					},
+					{
+						title: "Trading accounts",
+						url: "/settings/accounts",
+					},
+					{
+						title: "Instruments",
+						url: "/settings/instruments",
+					},
+					{
+						title: "Appearance",
+						url: "/settings/appearance",
+					},
+					{
+						title: "Data",
+						url: "/settings/data",
 					},
 				],
 			},
