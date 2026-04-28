@@ -49,7 +49,7 @@
 					},
 					{
 						title: "Analytics",
-						url: "/coming-soon?section=Analytics",
+						url: "/analytics",
 					},
                     {
 						title: "Strategies & Mistakes",
@@ -80,11 +80,11 @@
 					},
                     {
 						title: "Compounding Calculator",
-						url: "/coming-soon?section=Compounding+Calculator",
+						url: "/tools/compounding",
 					},
                     {
                         title: "Risk-to-Reward Planner",
-                        url: "/coming-soon?section=Risk-to-Reward+Planner",
+                        url: "/tools/rr-planner",
                     },
 				],
 			},

@@ -3,24 +3,51 @@ import { getAuthToken } from "$lib/utils/auth-token";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 type TradeSide = "long" | "short";
+type TradeStatus = "open" | "closed";
 
-interface Trade {
+/** Fields required to create a trade (POST /api/trades/create). */
+export type TradeCreatePayload = {
     account_id: string;
     instrument_id: string | null;
     symbol: string;
     side: TradeSide;
-    status: string;
+    status: TradeStatus;
     entry_price: number;
     exit_price?: number | null;
-    quantity: number; // mini/micro
+    quantity: number;
     stop_loss: number;
     take_profit: number;
-    /** Max loss in account currency if the stop is hit. */
     risk: number;
     pnl: number;
     opened_at: string;
     closed_at?: string | null;
     notes?: string;
+    strategy_ids?: string[];
+    mistake_ids?: string[];
+};
+
+export interface Trade {
+    id: string;
+    user_id: string;
+    account_id: string | null;
+    instrument_id: string | null;
+    symbol: string;
+    market: string | null;
+    side: TradeSide | null;
+    status: TradeStatus;
+    entry_price: string | number;
+    exit_price: string | number | null;
+    quantity: string | number;
+    stop_loss: string | number | null;
+    take_profit: string | number | null;
+    risk: string | number | null;
+    pnl: string | number | null;
+    r_multiple: string | number | null;
+    opened_at: string;
+    closed_at: string | null;
+    notes: string | null;
+    created_at: string;
+    updated_at: string;
     strategy_ids?: string[];
     mistake_ids?: string[];
 }
@@ -95,7 +122,7 @@ function createTradeStore() {
             trades = [];
         },
         getTradesByAccount,
-        createTrade: async (supabase: SupabaseClient, payload: Trade) => {
+        createTrade: async (supabase: SupabaseClient, payload: TradeCreatePayload) => {
             try {
                 const token = await getAuthToken(supabase);
                 const response = await fetch(`/api/trades/create`, {
