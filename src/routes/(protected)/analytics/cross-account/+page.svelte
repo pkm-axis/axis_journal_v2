@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from "svelte";
+	import { onMount, untrack } from "svelte";
 	import HeaderNavbar from "$lib/components/layout/header-navbar.svelte";
 	import * as Breadcrumb from "$lib/components/ui/breadcrumb/index.js";
 	import { ScrollArea } from "$lib/components/ui/scroll-area";
@@ -119,7 +119,9 @@
 
 	$effect(() => {
 		if (!session?.user?.id) return;
-		void loadAll();
+		untrack(() => {
+			void loadAll();
+		});
 	});
 
 	const totals = $derived.by(() => {
