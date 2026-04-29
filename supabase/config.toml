@@ -1,2 +1,12 @@
 [api]
 schemas = ["public", "trading"]
+
+[auth]
+enable_signup = true
+site_url = "http://localhost:5174"
+additional_redirect_urls = ["http://localhost:5174/**", "http://127.0.0.1:5174/**"]
+
+[auth.email]
+enable_signup = true
+enable_confirmations = true
+double_confirm_changes = true
