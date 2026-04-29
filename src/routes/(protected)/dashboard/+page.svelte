@@ -9,6 +9,9 @@
 	import { supabase } from "$lib/supabase/client";
 	import { tradeStore } from "$lib/stores/trades.svelte";
 	import { accountStore } from "$lib/stores/accounts.svelte";
+	import PropFirmRules from "$lib/components/dashboard/prop-firm-rules.svelte";
+	import * as Dialog from "$lib/components/ui/dialog/index.js";
+	import { Input } from "$lib/components/ui/input";
 
 	let session = $state<{ user: { id: string } } | null>(null);
 	const loading = $derived(tradeStore.loading);
@@ -94,6 +97,80 @@
 		return { d, area, zeroY, finalCum };
 	});
 
+	const activeAccount = $derived(
+		accountStore.accounts.find((a) => a.id === accountStore.activeAccountId) ?? null
+	);
+
+	let graduateOpen = $state(false);
+	let graduateName = $state("");
+	let graduatePhase = $state("Funded");
+	let graduateBalance = $state("");
+	let graduateMaxDrawdown = $state("");
+	let graduateDailyLoss = $state("");
+	let graduateMaxContracts = $state("");
+	let graduateConsistency = $state("");
+	let graduateSaving = $state(false);
+	let graduateError = $state<string | null>(null);
+
+	function openGraduate() {
+		if (!activeAccount) return;
+		graduateName = `${activeAccount.name} (Funded)`;
+		graduatePhase = "Funded";
+		graduateBalance = activeAccount.starting_balance != null ? String(activeAccount.starting_balance) : "";
+		graduateMaxDrawdown = activeAccount.prop_firm_max_drawdown != null ? String(activeAccount.prop_firm_max_drawdown) : "";
+		graduateDailyLoss = activeAccount.prop_firm_daily_loss_limit != null ? String(activeAccount.prop_firm_daily_loss_limit) : "";
+		graduateMaxContracts = activeAccount.prop_firm_max_contracts ?? "";
+		graduateConsistency = activeAccount.prop_firm_consistency_rule ?? "";
+		graduateError = null;
+		graduateOpen = true;
+	}
+
+	function numOrNull(v: string): number | null {
+		const t = v.trim();
+		if (!t) return null;
+		const n = Number(t);
+		return Number.isFinite(n) ? n : null;
+	}
+
+	function strOrNull(v: string): string | null {
+		const t = v.trim();
+		return t ? t : null;
+	}
+
+	async function submitGraduate() {
+		if (!activeAccount) return;
+		const name = graduateName.trim();
+		if (!name) {
+			graduateError = "Name is required.";
+			return;
+		}
+		graduateSaving = true;
+		graduateError = null;
+		try {
+			await accountStore.createAccount(supabase, {
+				name,
+				account_type: "prop firm",
+				starting_balance: numOrNull(graduateBalance),
+				prop_firm_name: activeAccount.prop_firm_name ?? null,
+				prop_firm_type: strOrNull(graduatePhase),
+				prop_firm_profit_target: null,
+				prop_firm_max_drawdown: numOrNull(graduateMaxDrawdown),
+				prop_firm_daily_loss_limit: numOrNull(graduateDailyLoss),
+				prop_firm_consistency_rule: strOrNull(graduateConsistency),
+				prop_firm_max_contracts: strOrNull(graduateMaxContracts),
+				parent_account_id: activeAccount.id,
+			});
+			// Switch to the new account.
+			const newest = accountStore.accounts[accountStore.accounts.length - 1];
+			if (newest) accountStore.setActiveAccountId(newest.id);
+			graduateOpen = false;
+		} catch (e) {
+			graduateError = e instanceof Error ? e.message : "Failed to create funded account.";
+		} finally {
+			graduateSaving = false;
+		}
+	}
+
 	const recentTrades = $derived.by(() => {
 		return [...trades]
 			.sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
@@ -131,6 +208,18 @@
 			<div class="rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
 				Choose an account from the sidebar to load its dashboard.
 			</div>
+		{/if}
+
+		<!-- Prop firm rules (only for prop firm accounts) -->
+		{#if activeAccount && activeAccount.account_type === "prop firm" && !loading}
+			{@const fundedChild = accountStore.accounts.find((a) => a.parent_account_id === activeAccount.id) ?? null}
+			<PropFirmRules
+				account={activeAccount}
+				{trades}
+				onGraduate={fundedChild ? undefined : openGraduate}
+				graduatedTo={fundedChild}
+				onSwitchToGraduated={() => fundedChild && accountStore.setActiveAccountId(fundedChild.id)}
+			/>
 		{/if}
 
 		<!-- Stat cards -->
@@ -313,3 +402,67 @@
 		</div>
 	</div>
 </ScrollArea>
+
+<Dialog.Root bind:open={graduateOpen}>
+	<Dialog.Content class="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+		<Dialog.Header>
+			<Dialog.Title>Graduate to funded</Dialog.Title>
+			<Dialog.Description>
+				Create a new funded account linked to this evaluation. Adjust the rules to match your funded contract.
+			</Dialog.Description>
+		</Dialog.Header>
+
+		<div class="space-y-4">
+			<div class="space-y-1.5">
+				<div class="text-xs font-medium">Account name</div>
+				<Input bind:value={graduateName} class="rounded-md" />
+			</div>
+			<div class="grid grid-cols-2 gap-3">
+				<div class="space-y-1.5">
+					<div class="text-xs font-medium">Phase</div>
+					<Input bind:value={graduatePhase} placeholder="Funded" class="rounded-md" />
+				</div>
+				<div class="space-y-1.5">
+					<div class="text-xs font-medium">Starting balance</div>
+					<Input bind:value={graduateBalance} type="number" inputmode="decimal" class="rounded-md" />
+				</div>
+			</div>
+			<div class="grid grid-cols-2 gap-3">
+				<div class="space-y-1.5">
+					<div class="text-xs font-medium">Max drawdown ($)</div>
+					<Input bind:value={graduateMaxDrawdown} type="number" inputmode="decimal" class="rounded-md" />
+				</div>
+				<div class="space-y-1.5">
+					<div class="text-xs font-medium">Daily loss limit ($)</div>
+					<Input bind:value={graduateDailyLoss} type="number" inputmode="decimal" class="rounded-md" />
+				</div>
+			</div>
+			<div class="grid grid-cols-2 gap-3">
+				<div class="space-y-1.5">
+					<div class="text-xs font-medium">Max contracts</div>
+					<Input bind:value={graduateMaxContracts} class="rounded-md" />
+				</div>
+				<div class="space-y-1.5">
+					<div class="text-xs font-medium">Consistency rule</div>
+					<Input bind:value={graduateConsistency} placeholder="e.g. 30%" class="rounded-md" />
+				</div>
+			</div>
+			<p class="text-[11px] text-muted-foreground">
+				No profit target — funded accounts are about staying within the rules. The new account will be linked to "{activeAccount?.name}".
+			</p>
+
+			{#if graduateError}
+				<div class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+					{graduateError}
+				</div>
+			{/if}
+		</div>
+
+		<Dialog.Footer>
+			<Button variant="outline" class="rounded-md cursor-pointer" onclick={() => (graduateOpen = false)}>Cancel</Button>
+			<Button class="rounded-md cursor-pointer bg-emerald-700 hover:bg-emerald-800 text-white" disabled={graduateSaving || !graduateName.trim()} onclick={submitGraduate}>
+				{graduateSaving ? "Creating…" : "Create funded account"}
+			</Button>
+		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>

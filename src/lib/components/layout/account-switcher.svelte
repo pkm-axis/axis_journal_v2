@@ -20,21 +20,25 @@
 
     let accountList = $derived(props.accounts ?? []);
 
-	let activeAccount = $state<Account | null>(null);
+    // Source of truth = the store. The switcher only displays it.
+    const activeAccount = $derived<Account | null>(
+        accountList.find((a: Account) => a.id === accountStore.activeAccountId) ?? null
+    );
 
+    // Default to the first account when none is set yet.
     $effect(() => {
         if (accountList.length === 0) {
-            activeAccount = null;
+            if (accountStore.activeAccountId !== null) accountStore.setActiveAccountId(null);
             return;
         }
-        if (!activeAccount || !accountList.some((a: Account) => a.id === activeAccount!.id)) {
-            activeAccount = accountList[0];
+        if (!accountStore.activeAccountId || !accountList.some((a: Account) => a.id === accountStore.activeAccountId)) {
+            accountStore.setActiveAccountId(accountList[0].id);
         }
     });
 
-    $effect(() => {
-        accountStore.setActiveAccountId(activeAccount?.id ?? null);
-    });
+    function selectAccount(a: Account) {
+        accountStore.setActiveAccountId(a.id);
+    }
 
     let accountName: string = $state('');
     let accountType: string = $state('prop firm');
@@ -117,7 +121,7 @@
 			>
 				<DropdownMenu.Label class="text-muted-foreground text-xs">Accounts</DropdownMenu.Label>
 				{#each accountList as account (account.id)}
-					<DropdownMenu.Item onSelect={() => (activeAccount = account)} class="gap-2 p-2 cursor-pointer">
+					<DropdownMenu.Item onSelect={() => selectAccount(account)} class="gap-2 p-2 cursor-pointer">
 						{account.name}
 					</DropdownMenu.Item>
 				{/each}

@@ -6,6 +6,15 @@ export interface Account {
     name: string;
     account_type: string;
     logo?: unknown;
+    starting_balance?: number | null;
+    prop_firm_name?: string | null;
+    prop_firm_type?: string | null;
+    prop_firm_profit_target?: number | null;
+    prop_firm_max_drawdown?: number | null;
+    prop_firm_daily_loss_limit?: number | null;
+    prop_firm_consistency_rule?: string | null;
+    prop_firm_max_contracts?: string | null;
+    parent_account_id?: string | null;
 }
 
 function createAccountStore() {
@@ -85,7 +94,7 @@ function createAccountStore() {
                 loading = false;
             }
         },
-        updateAccount: async (supabase: SupabaseClient, id: string, payload: { name?: string; account_type?: string }) => {
+        updateAccount: async (supabase: SupabaseClient, id: string, payload: Partial<Account>) => {
             const token = await getAuthToken(supabase);
             const response = await fetch(`/api/accounts/${encodeURIComponent(id)}`, {
                 method: "PATCH",

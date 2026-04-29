@@ -22,7 +22,8 @@ export async function POST({ request, locals: { supabase, safeGetSession } }) {
         prop_firm_max_drawdown,
         prop_firm_daily_loss_limit,
         prop_firm_consistency_rule,
-        prop_firm_max_contracts
+        prop_firm_max_contracts,
+        parent_account_id,
       } = body;
 
       const { data, error } = await supabase
@@ -43,7 +44,8 @@ export async function POST({ request, locals: { supabase, safeGetSession } }) {
                 prop_firm_max_drawdown,
                 prop_firm_daily_loss_limit,
                 prop_firm_consistency_rule,
-                prop_firm_max_contracts
+                prop_firm_max_contracts,
+                parent_account_id,
             }
         ])
         .select()

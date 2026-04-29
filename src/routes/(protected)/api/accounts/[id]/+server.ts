@@ -10,10 +10,56 @@ export const PATCH: RequestHandler = async ({ params, request, locals: { supabas
 	const id = params.id?.trim();
 	if (!id) return json({ success: false, message: "Missing id" }, { status: 400 });
 
-	const body = (await request.json()) as { name?: string; account_type?: string };
+	// Block edits to graduated evals (an account is "graduated" if another account points to it).
+	const { count } = await supabase
+		.schema("trading")
+		.from("accounts")
+		.select("id", { count: "exact", head: true })
+		.eq("user_id", user.id)
+		.eq("parent_account_id", id);
+	if ((count ?? 0) > 0) {
+		return json({ success: false, message: "This account has been graduated and is locked from editing." }, { status: 403 });
+	}
+
+	const body = (await request.json()) as Record<string, unknown>;
 	const patch: Record<string, unknown> = {};
-	if (typeof body.name === "string") patch.name = body.name.trim();
-	if (typeof body.account_type === "string") patch.account_type = body.account_type.trim();
+	const stringFields = [
+		"name",
+		"account_type",
+		"prop_firm_name",
+		"prop_firm_type",
+		"prop_firm_consistency_rule",
+		"prop_firm_max_contracts",
+	];
+	const numberFields = [
+		"starting_balance",
+		"prop_firm_profit_target",
+		"prop_firm_max_drawdown",
+		"prop_firm_daily_loss_limit",
+	];
+	for (const f of stringFields) {
+		if (f in body) {
+			const v = body[f];
+			patch[f] = typeof v === "string" ? v.trim() || null : null;
+		}
+	}
+	for (const f of numberFields) {
+		if (f in body) {
+			const v = body[f];
+			patch[f] = v === null || v === "" || v === undefined ? null : Number(v);
+		}
+	}
+
+	// If switching away from "prop firm", null all prop firm fields to satisfy CHECK constraint.
+	if (patch.account_type && patch.account_type !== "prop firm") {
+		patch.prop_firm_name = null;
+		patch.prop_firm_type = null;
+		patch.prop_firm_profit_target = null;
+		patch.prop_firm_max_drawdown = null;
+		patch.prop_firm_daily_loss_limit = null;
+		patch.prop_firm_consistency_rule = null;
+		patch.prop_firm_max_contracts = null;
+	}
 
 	if (Object.keys(patch).length === 0) {
 		return json({ success: false, message: "No fields to update" }, { status: 400 });
@@ -42,6 +88,16 @@ export const DELETE: RequestHandler = async ({ params, locals: { supabase, safeG
 
 	const id = params.id?.trim();
 	if (!id) return json({ success: false, message: "Missing id" }, { status: 400 });
+
+	const { count } = await supabase
+		.schema("trading")
+		.from("accounts")
+		.select("id", { count: "exact", head: true })
+		.eq("user_id", user.id)
+		.eq("parent_account_id", id);
+	if ((count ?? 0) > 0) {
+		return json({ success: false, message: "This account has been graduated and is locked from deletion." }, { status: 403 });
+	}
 
 	const { error } = await supabase
 		.schema("trading")
