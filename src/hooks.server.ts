@@ -49,10 +49,11 @@ const supabase: Handle = async ({ event, resolve }) => {
         } = await event.locals.supabase.auth.getUser()
 
         if (error) {
-            // JWT validation has failed
+            // JWT validation has failed (e.g. user was deleted) — clear stale cookies
+            await event.locals.supabase.auth.signOut()
             return { session: null, user: null }
         }
-    
+
         return { session, user }
     }
   
@@ -73,22 +74,19 @@ const authGuard: Handle = async ({ event, resolve }) => {
     event.locals.user = user
   
     const path = event.url.pathname;
-  
-    const protectedPaths = ['/dashboard'];
-    const authPaths = ['/login', '/register'];
-  
-    const isProtected = protectedPaths.some((p) => path === p || path.startsWith(`${p}/`));
-    const isAuthRoute = authPaths.some((p) => path === p || path.startsWith(`${p}/`));
-  
-    if(path === '/') {
-      redirect(303, '/dashboard');
+
+    const publicPaths = ['/login', '/signup', '/register', '/auth'];
+    const isPublic = publicPaths.some((p) => path === p || path.startsWith(`${p}/`));
+
+    if (path === '/') {
+      redirect(303, session ? '/dashboard' : '/login');
     }
-  
-    if (!session && isProtected) {
+
+    if (!session && !isPublic) {
         redirect(303, '/login');
     }
-  
-    if (session && isAuthRoute) {
+
+    if (session && isPublic && !path.startsWith('/auth')) {
         redirect(303, '/dashboard');
     }
   
