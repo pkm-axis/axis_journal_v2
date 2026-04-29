@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { preferences } from "$lib/stores/preferences.svelte";
+	import { useSidebar } from "$lib/components/ui/sidebar/index.js";
 	import { SunIcon, MoonIcon, MonitorIcon } from "phosphor-svelte";
+
+	const sidebar = useSidebar();
 
 	const THEMES = [
 		{ id: "light" as const, label: "Light", Icon: SunIcon },
@@ -52,7 +55,10 @@
 					{@const active = preferences.sidebarDefault === s.id}
 					<button
 						type="button"
-						onclick={() => preferences.setSidebarDefault(s.id)}
+						onclick={() => {
+							preferences.setSidebarDefault(s.id);
+							sidebar.setOpen(s.id === "expanded");
+						}}
 						class={[
 							"flex flex-col items-start gap-1 rounded-md border p-3 cursor-pointer transition-colors text-left",
 							active ? "border-primary ring-1 ring-primary" : "border-border hover:border-foreground/30",

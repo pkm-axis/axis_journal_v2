@@ -57,6 +57,9 @@ function createPreferencesStore() {
 		setSidebarDefault(next: SidebarDefault) {
 			sidebarDefault = next;
 			localStorage.setItem(SIDEBAR_KEY, next);
+			// Sync the sidebar provider's cookie so the choice takes effect on next load.
+			const open = next === "expanded";
+			document.cookie = `sidebar:state=${open}; path=/; max-age=${60 * 60 * 24 * 7}`;
 		},
 	};
 }
