@@ -86,8 +86,8 @@
 		for (const [key, pnl] of pnlByDay) {
 			if (!key.startsWith(prefix)) continue;
 			total += pnl;
-			if (pnl > best) best = pnl;
-			if (pnl < worst) worst = pnl;
+			if (pnl > 0 && pnl > best) best = pnl;
+			if (pnl < 0 && pnl < worst) worst = pnl;
 			tradingDays++;
 			if (pnl > 0) winDays++;
 		}
