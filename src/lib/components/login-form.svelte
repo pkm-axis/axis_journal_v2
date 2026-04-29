@@ -108,13 +108,6 @@
 					<Field>
 						<div class="flex items-center">
 							<FieldLabel for="password-{id}">Password</FieldLabel>
-							<button
-								type="button"
-								class="ms-auto text-sm underline-offset-2 hover:underline"
-								onclick={handleForgotPassword}
-							>
-								Forgot your password?
-							</button>
 						</div>
 						<Input
 							id="password-{id}"
@@ -123,6 +116,16 @@
 							bind:value={password}
 							required
 						/>
+                        <div class="flex items-center">
+                            <button
+                            type="button"
+                            class="ms-auto text-xs underline-offset-2 hover:underline cursor-pointer"
+                            onclick={handleForgotPassword}
+                        >
+                            Forgot your password?
+                        </button>
+                        </div>
+                        
 					</Field>
 					<Field>
 						<Button type="submit" class="w-full" disabled={loading}>
