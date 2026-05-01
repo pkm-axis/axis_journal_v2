@@ -1,6 +1,13 @@
 import { getAuthToken } from "$lib/utils/auth-token";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+const ACTIVE_ACCOUNT_KEY = "axis:active-account-id";
+
+function readActiveAccountId(): string | null {
+    if (typeof localStorage === "undefined") return null;
+    return localStorage.getItem(ACTIVE_ACCOUNT_KEY);
+}
+
 export interface Account {
     id: string;
     name: string;
@@ -20,7 +27,7 @@ export interface Account {
 function createAccountStore() {
     let loading = $state(false);
     let accounts = $state<Account[]>([]);
-    let activeAccountId = $state<string | null>(null);
+    let activeAccountId = $state<string | null>(readActiveAccountId());
 
     return {
         get loading() {
@@ -34,10 +41,13 @@ function createAccountStore() {
         },
         setActiveAccountId: (id: string | null) => {
             activeAccountId = id;
+            if (id) localStorage.setItem(ACTIVE_ACCOUNT_KEY, id);
+            else localStorage.removeItem(ACTIVE_ACCOUNT_KEY);
         },
         clear: () => {
             accounts = [];
             activeAccountId = null;
+            localStorage.removeItem(ACTIVE_ACCOUNT_KEY);
         },
         getAllAccounts: async(supabase: SupabaseClient) => {
             try {
@@ -121,7 +131,7 @@ function createAccountStore() {
             });
             const result = await response.json();
             if (!result.success) throw new Error(result.message ?? "Failed to delete account");
-            if (activeAccountId === id) activeAccountId = null;
+            if (activeAccountId === id) accountStore.setActiveAccountId(null);
             await accountStore.getAllAccounts(supabase);
         },
     };
