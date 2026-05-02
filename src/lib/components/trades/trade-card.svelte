@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { Button } from "$lib/components/ui/button";
+	import * as Dialog from "$lib/components/ui/dialog/index.js";
 	import {
 		ChartLineDownIcon,
 		ChartLineUpIcon,
 		PencilSimpleIcon,
 		ShareNetworkIcon
 	} from "phosphor-svelte";
+
+	let screenshotOpen = $state(false);
 
 	interface TradeRow {
 		id: string;
@@ -27,6 +30,7 @@
 		opened_at: string;
 		closed_at: string | null;
 		notes: string | null;
+		screenshot_url?: string | null;
 		created_at: string;
 		updated_at: string;
 		strategy_ids?: string[];
@@ -118,6 +122,32 @@
 </script>
 
 <div class="rounded-md border bg-background flex flex-col overflow-hidden">
+	<!-- Cover photo -->
+	{#if trade.screenshot_url}
+		<button
+			type="button"
+			class="relative h-36 w-full overflow-hidden bg-muted cursor-zoom-in"
+			onclick={() => (screenshotOpen = true)}
+			aria-label="View screenshot"
+		>
+			<img
+				src={trade.screenshot_url}
+				alt="Trade screenshot"
+				class="h-full w-full object-cover"
+			/>
+		</button>
+
+		<Dialog.Root bind:open={screenshotOpen}>
+			<Dialog.Content class="sm:max-w-3xl p-0 overflow-hidden" showCloseButton={true}>
+				<img
+					src={trade.screenshot_url}
+					alt="Trade screenshot"
+					class="w-full max-h-[80vh] object-contain"
+				/>
+			</Dialog.Content>
+		</Dialog.Root>
+	{/if}
+
 	<!-- Header -->
 	<div class="flex items-center justify-between px-4 pt-4 pb-3">
 		<div class="flex items-center gap-2">

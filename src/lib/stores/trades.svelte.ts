@@ -46,6 +46,7 @@ export interface Trade {
     opened_at: string;
     closed_at: string | null;
     notes: string | null;
+    screenshot_url: string | null;
     created_at: string;
     updated_at: string;
     strategy_ids?: string[];
@@ -68,6 +69,7 @@ export type TradeUpdatePayload = {
     opened_at: string;
     closed_at?: string | null;
     notes?: string | null;
+    screenshot_url?: string | null;
     strategy_ids?: string[];
     mistake_ids?: string[];
 };
@@ -142,6 +144,7 @@ function createTradeStore() {
                 }
 
                 await getTradesByAccount(supabase);
+                return result.data as Trade;
             } catch (e) {
                 console.error("Error creating trade:", e);
                 throw e;

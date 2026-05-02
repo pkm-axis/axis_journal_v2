@@ -128,6 +128,9 @@
 	/** Optional: when filled, derives take profit from entry, qty, side, and instrument. */
 	let formProfitInput = $state("");
 	let showRiskProfit = $state(false);
+	let formScreenshotFile = $state<File | null>(null);
+	let formScreenshotPreview = $state<string | null>(null);
+	let formExistingScreenshotUrl = $state<string | null>(null);
 
 	function resetNewTradeForm() {
 		formSymbol = "";
@@ -148,6 +151,9 @@
 		formRiskInput = "";
 		formProfitInput = "";
 		showRiskProfit = false;
+		formScreenshotFile = null;
+		formScreenshotPreview = null;
+		formExistingScreenshotUrl = null;
 	}
 
 	function closeTradeSheet() {
@@ -185,6 +191,9 @@
 		formMistakeIds = [...(t.mistake_ids ?? [])];
 		formRiskInput = "";
 		formProfitInput = "";
+		formScreenshotFile = null;
+		formScreenshotPreview = null;
+		formExistingScreenshotUrl = (t as TradeRow & { screenshot_url?: string | null }).screenshot_url ?? null;
 		tradeSheetOpen = true;
 	}
 
@@ -383,6 +392,20 @@
 		}
 	});
 
+	async function uploadTradeScreenshot(userId: string, tradeId: string, file: File): Promise<string | null> {
+		const ext = file.name.split(".").pop() ?? "png";
+		const path = `${userId}/${tradeId}.${ext}`;
+		const { error } = await supabase.storage
+			.from("trade-screenshots")
+			.upload(path, file, { upsert: true });
+		if (error) {
+			console.error("Screenshot upload error:", error);
+			return null;
+		}
+		const { data } = supabase.storage.from("trade-screenshots").getPublicUrl(path);
+		return data.publicUrl;
+	}
+
 	async function refreshSession() {
 		const {
 			data: { session: s }
@@ -439,6 +462,10 @@
 		try {
 			if (editingTradeId) {
 				const existing = trades.find((x) => x.id === editingTradeId);
+				let screenshotUrl: string | null | undefined = undefined;
+				if (formScreenshotFile) {
+					screenshotUrl = await uploadTradeScreenshot(session.user.id, editingTradeId, formScreenshotFile);
+				}
 				await tradeStore.updateTrade(supabase, editingTradeId, {
 					instrument_id: selectedInstrument?.id ?? existing?.instrument_id ?? null,
 					symbol,
@@ -454,11 +481,12 @@
 					opened_at: openedAtIso,
 					closed_at: closedAtIso,
 					notes: formNotes.trim() || null,
+					screenshot_url: screenshotUrl,
 					strategy_ids: formStrategyIds,
 					mistake_ids: formStatus === "closed" ? formMistakeIds : []
 				});
 			} else {
-				await tradeStore.createTrade(supabase, {
+				const created = await tradeStore.createTrade(supabase, {
 					account_id: accountId,
 					instrument_id: selectedInstrument?.id ?? null,
 					symbol,
@@ -477,6 +505,26 @@
 					strategy_ids: formStrategyIds,
 					mistake_ids: formStatus === "closed" ? formMistakeIds : []
 				});
+				if (formScreenshotFile && created?.id) {
+					const screenshotUrl = await uploadTradeScreenshot(session.user.id, created.id, formScreenshotFile);
+					if (screenshotUrl) {
+						await tradeStore.updateTrade(supabase, created.id, {
+							symbol,
+							side: formSide,
+							status: formStatus,
+							entry_price: entryPrice,
+							exit_price: exitPrice ?? undefined,
+							quantity: qty,
+							stop_loss: stopLoss,
+							take_profit: takeProfit,
+							risk: dollarRisk,
+							pnl: formStatus === "closed" ? (num(formPnl) ?? 0) : 0,
+							opened_at: openedAtIso,
+							closed_at: closedAtIso ?? undefined,
+							screenshot_url: screenshotUrl
+						});
+					}
+				}
 			}
 
 			closeTradeSheet();
@@ -1144,6 +1192,55 @@
 							class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[72px] w-full rounded-md border px-3 py-2 text-xs shadow-xs outline-none focus-visible:ring-1 disabled:cursor-not-allowed disabled:opacity-50"
 							placeholder="Optional"
 						></textarea>
+					</div>
+
+					<div class="space-y-1.5">
+						<div class="text-xs font-medium">Screenshot</div>
+						{#if formScreenshotPreview || formExistingScreenshotUrl}
+							<div class="relative rounded-md overflow-hidden border">
+								<img
+									src={formScreenshotPreview ?? formExistingScreenshotUrl ?? ""}
+									alt="Trade screenshot preview"
+									class="w-full max-h-48 object-cover"
+								/>
+								<button
+									type="button"
+									class="absolute top-1.5 right-1.5 rounded-md bg-background/80 p-1 text-xs text-muted-foreground hover:bg-background cursor-pointer border"
+									onclick={() => {
+										formScreenshotFile = null;
+										formScreenshotPreview = null;
+										formExistingScreenshotUrl = null;
+									}}
+								>
+									Remove
+								</button>
+							</div>
+						{:else}
+							<label
+								class="flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-md border border-dashed p-5 text-center hover:bg-muted/40 transition-colors"
+							>
+								<input
+									type="file"
+									accept="image/*"
+									class="sr-only"
+									onchange={(e) => {
+										const file = (e.currentTarget as HTMLInputElement).files?.[0] ?? null;
+										formScreenshotFile = file;
+										if (file) {
+											const reader = new FileReader();
+											reader.onload = (ev) => {
+												formScreenshotPreview = (ev.target?.result as string) ?? null;
+											};
+											reader.readAsDataURL(file);
+										} else {
+											formScreenshotPreview = null;
+										}
+									}}
+								/>
+								<span class="text-xs text-muted-foreground">Click to upload a screenshot</span>
+								<span class="text-[10px] text-muted-foreground">PNG, JPG, WEBP</span>
+							</label>
+						{/if}
 					</div>
 				</div>
 

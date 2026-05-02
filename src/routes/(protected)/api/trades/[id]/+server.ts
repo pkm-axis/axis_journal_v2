@@ -15,7 +15,8 @@ const updatableKeys = [
 	"pnl",
 	"opened_at",
 	"closed_at",
-	"notes"
+	"notes",
+	"screenshot_url"
 ] as const;
 
 type UpdatableKey = (typeof updatableKeys)[number];
