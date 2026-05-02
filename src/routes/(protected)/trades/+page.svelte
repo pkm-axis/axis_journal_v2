@@ -16,9 +16,12 @@
 		PencilSimpleIcon,
 		PlusIcon,
 		PulseIcon,
+		RowsIcon,
 		ShareNetworkIcon,
+		SquaresFourIcon,
 		TrashIcon
 	} from "phosphor-svelte";
+	import TradeCard from "$lib/components/trades/trade-card.svelte";
 	import * as Select from "$lib/components/ui/select/index.js";
 	import * as Sheet from "$lib/components/ui/sheet/index.js";
 	import { supabase } from "$lib/supabase/client";
@@ -66,6 +69,7 @@
 	}
 
 	let session = $state<Session | null>(null);
+	let viewMode = $state<"table" | "gallery">("table");
 	let saveError = $state<string | null>(null);
 	let saving = $state(false);
 	let deleting = $state(false);
@@ -655,12 +659,34 @@
 		<div class="rounded-md border bg-background">
 			<div class="flex items-center justify-between gap-3 border-b px-4 py-3">
 				<div class="text-sm font-medium">All trades</div>
-				<div class="text-xs text-muted-foreground">
-					{#if loading}
-						Loading…
-					{:else}
-						Showing <span class="tabular-nums">{filteredTrades.length}</span>
-					{/if}
+				<div class="flex items-center gap-2">
+					<div class="text-xs text-muted-foreground">
+						{#if loading}
+							Loading…
+						{:else}
+							Showing <span class="tabular-nums">{filteredTrades.length}</span>
+						{/if}
+					</div>
+					<div class="flex items-center rounded-md border p-0.5 gap-0.5">
+						<Button
+							variant="ghost"
+							size="icon"
+							class={["h-6 w-6 cursor-pointer", viewMode === "table" && "bg-muted"]}
+							aria-label="Table view"
+							onclick={() => (viewMode = "table")}
+						>
+							<RowsIcon size={14} />
+						</Button>
+						<Button
+							variant="ghost"
+							size="icon"
+							class={["h-6 w-6 cursor-pointer", viewMode === "gallery" && "bg-muted"]}
+							aria-label="Gallery view"
+							onclick={() => (viewMode = "gallery")}
+						>
+							<SquaresFourIcon size={14} />
+						</Button>
+					</div>
 				</div>
 			</div>
 
@@ -719,6 +745,18 @@
 									? "Create your first trade to see it here."
 									: "Try adjusting your search or filters."}
 					</div>
+				</div>
+			{:else if viewMode === "gallery"}
+				<div class="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+					{#each filteredTrades as t (t.id)}
+						<TradeCard
+							trade={t}
+							strategies={strategyStore.strategies}
+							mistakes={mistakeStore.mistakes}
+							onshare={openShareSheet}
+							onedit={openTradeSheetEdit}
+						/>
+					{/each}
 				</div>
 			{:else}
 				<div class="w-full overflow-x-auto">
