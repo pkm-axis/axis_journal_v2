@@ -547,7 +547,6 @@
 	});
 
 	$effect(() => {
-		if (!session?.user?.id) return;
 		void accountStore.activeAccountId;
 		void tradeStore.getTradesByAccount(supabase);
 	});
