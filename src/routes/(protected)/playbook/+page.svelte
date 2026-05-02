@@ -2,11 +2,12 @@
 	import { onMount } from "svelte";
 	import HeaderNavbar from "$lib/components/layout/header-navbar.svelte";
 	import * as Breadcrumb from "$lib/components/ui/breadcrumb/index.js";
+	import * as Dialog from "$lib/components/ui/dialog/index.js";
 	import { Button } from "$lib/components/ui/button";
 	import { Input } from "$lib/components/ui/input";
 	import { ScrollArea } from "$lib/components/ui/scroll-area";
 	import * as Sheet from "$lib/components/ui/sheet/index.js";
-	import { PencilSimpleIcon, PlusIcon, TrashIcon } from "phosphor-svelte";
+	import { PencilSimpleIcon, PlusIcon, TrashIcon, ChartLineUpIcon, ChartLineDownIcon } from "phosphor-svelte";
 	import { Skeleton } from "$lib/components/ui/skeleton";
 	import { supabase } from "$lib/supabase/client";
 	import { strategyStore, type Strategy } from "$lib/stores/strategies.svelte";
@@ -16,6 +17,22 @@
 	type Kind = "strategy" | "mistake";
 	type Item = Strategy | Mistake;
 
+	type SlimTrade = {
+		id: string;
+		symbol: string | null;
+		side: string | null;
+		status: string | null;
+		pnl: number | null;
+		opened_at: string | null;
+		account_id: string | null;
+		strategy_ids: string[];
+		mistake_ids: string[];
+	};
+
+	let allTrades = $state<SlimTrade[]>([]);
+	let tradesLoading = $state(false);
+
+	// ── Edit / create sheet ───────────────────────────────────────────────────
 	let sheetOpen = $state(false);
 	let kind = $state<Kind>("strategy");
 	let editingId = $state<string | null>(null);
@@ -25,12 +42,52 @@
 
 	const isEditing = $derived(editingId != null);
 
+	// ── Trades dialog ─────────────────────────────────────────────────────────
+	let dialogOpen = $state(false);
+	let dialogItem = $state<Item | null>(null);
+	let dialogKind = $state<Kind>("strategy");
+
+	const dialogTrades = $derived.by(() => {
+		if (!dialogItem) return [];
+		return allTrades.filter((t) =>
+			dialogKind === "strategy"
+				? t.strategy_ids.includes(dialogItem!.id)
+				: t.mistake_ids.includes(dialogItem!.id)
+		);
+	});
+
+	function tradesForItem(k: Kind, item: Item): SlimTrade[] {
+		return allTrades.filter((t) =>
+			k === "strategy"
+				? t.strategy_ids.includes(item.id)
+				: t.mistake_ids.includes(item.id)
+		);
+	}
+
+	function openTradesDialog(k: Kind, item: Item) {
+		dialogKind = k;
+		dialogItem = item;
+		dialogOpen = true;
+	}
+
+	function fmtUsd(v: number | null) {
+		if (v == null || !Number.isFinite(v)) return "—";
+		return new Intl.NumberFormat(undefined, {
+			style: "currency", currency: "USD", signDisplay: "exceptZero",
+		}).format(v);
+	}
+
+	function fmtDate(iso: string | null) {
+		if (!iso) return "—";
+		return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(iso));
+	}
+
+	// ── Edit / create ─────────────────────────────────────────────────────────
 	function openCreate(k: Kind) {
 		kind = k;
 		editingId = null;
 		formName = "";
 		formDescription = "";
-
 		sheetOpen = true;
 	}
 
@@ -39,14 +96,12 @@
 		editingId = item.id;
 		formName = item.name;
 		formDescription = item.description ?? "";
-
 		sheetOpen = true;
 	}
 
 	function closeSheet() {
 		sheetOpen = false;
 		editingId = null;
-
 	}
 
 	async function submit() {
@@ -85,19 +140,38 @@
 		}
 	}
 
-	onMount(() => {
+	onMount(async () => {
 		void strategyStore.getStrategies(supabase);
 		void mistakeStore.getMistakes(supabase);
+		tradesLoading = true;
+		try {
+			const res = await fetch("/api/trades/all", { credentials: "include" });
+			const result = await res.json();
+			if (result.success) allTrades = result.data;
+		} finally {
+			tradesLoading = false;
+		}
 	});
 </script>
 
-{#snippet itemList(
-	k: Kind,
-	items: Item[],
-	loading: boolean,
-	emptyTitle: string,
-	emptyHint: string
-)}
+{#snippet tradePill(t: SlimTrade)}
+	{@const pnl = t.pnl != null && Number.isFinite(t.pnl) ? t.pnl : null}
+	{@const side = (t.side ?? "").toLowerCase()}
+	<span class={[
+		"inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium",
+		side === "long" ? "bg-emerald-700/10 text-emerald-700 dark:text-emerald-400" : "bg-rose-700/10 text-rose-700 dark:text-rose-400",
+	]}>
+		{#if side === "long"}<ChartLineUpIcon size={10} />{:else}<ChartLineDownIcon size={10} />{/if}
+		{t.symbol ?? "—"}
+		{#if pnl != null}
+			<span class={pnl >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}>
+				{fmtUsd(pnl)}
+			</span>
+		{/if}
+	</span>
+{/snippet}
+
+{#snippet itemList(k: Kind, items: Item[], loading: boolean, emptyTitle: string, emptyHint: string)}
 	<div class="rounded-md border bg-background">
 		{#if loading}
 			<ul class="divide-y">
@@ -122,33 +196,73 @@
 		{:else}
 			<ul class="divide-y">
 				{#each items as item (item.id)}
-					<li class="flex items-start justify-between gap-3 px-4 py-3">
-						<div class="min-w-0">
-							<div class="text-sm font-medium">{item.name}</div>
-							{#if item.description}
-								<div class="mt-0.5 text-xs text-muted-foreground">{item.description}</div>
-							{/if}
-						</div>
-						<div class="flex shrink-0 items-center gap-1">
-							<Button
-								variant="ghost"
-								size="icon"
-								class="h-8 w-8 cursor-pointer"
-								onclick={() => openEdit(k, item)}
-								aria-label="Edit"
+					{@const trades = tradesForItem(k, item)}
+					{@const preview = trades.slice(0, 3)}
+					<li class="px-4 py-3 space-y-2">
+						<div class="flex items-start justify-between gap-3">
+							<button
+								type="button"
+								class="min-w-0 text-left cursor-pointer group"
+								onclick={() => openTradesDialog(k, item)}
 							>
-								<PencilSimpleIcon size={16} class="text-muted-foreground" />
-							</Button>
-							<Button
-								variant="ghost"
-								size="icon"
-								class="h-8 w-8 cursor-pointer text-rose-700 hover:bg-rose-700/10 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-400"
-								onclick={() => remove(k, item)}
-								aria-label="Delete"
-							>
-								<TrashIcon size={16} />
-							</Button>
+								<div class="text-sm font-medium group-hover:text-primary transition-colors">{item.name}</div>
+								{#if item.description}
+									<div class="mt-0.5 text-xs text-muted-foreground">{item.description}</div>
+								{/if}
+							</button>
+							<div class="flex shrink-0 items-center gap-1">
+								<Button
+									variant="ghost"
+									size="icon"
+									class="h-8 w-8 cursor-pointer"
+									onclick={() => openEdit(k, item)}
+									aria-label="Edit"
+								>
+									<PencilSimpleIcon size={16} class="text-muted-foreground" />
+								</Button>
+								<Button
+									variant="ghost"
+									size="icon"
+									class="h-8 w-8 cursor-pointer text-rose-700 hover:bg-rose-700/10 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-400"
+									onclick={() => remove(k, item)}
+									aria-label="Delete"
+								>
+									<TrashIcon size={16} />
+								</Button>
+							</div>
 						</div>
+
+						<!-- Trade previews -->
+						{#if tradesLoading}
+							<div class="flex gap-1.5">
+								{#each [0,1,2] as _}<Skeleton class="h-5 w-20 rounded-md" />{/each}
+							</div>
+						{:else if trades.length === 0}
+							<p class="text-[11px] text-muted-foreground">No trades tagged yet.</p>
+						{:else}
+							<div class="flex flex-wrap items-center gap-1.5">
+								{#each preview as t (t.id)}
+									{@render tradePill(t)}
+								{/each}
+								{#if trades.length > 3}
+									<button
+										type="button"
+										class="text-[11px] text-primary hover:underline cursor-pointer"
+										onclick={() => openTradesDialog(k, item)}
+									>
+										+{trades.length - 3} more
+									</button>
+								{:else}
+									<button
+										type="button"
+										class="text-[11px] text-muted-foreground hover:text-primary cursor-pointer"
+										onclick={() => openTradesDialog(k, item)}
+									>
+										View all
+									</button>
+								{/if}
+							</div>
+						{/if}
 					</li>
 				{/each}
 			</ul>
@@ -163,6 +277,7 @@
 		</Breadcrumb.List>
 	</Breadcrumb.Root>
 </HeaderNavbar>
+
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
 	<div class="container mx-auto max-w-8xl space-y-6 p-4 md:p-6">
 		<div>
@@ -184,17 +299,10 @@
 						size="sm"
 						class="cursor-pointer rounded-md bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
 					>
-						<PlusIcon size={14} />
-						New
+						<PlusIcon size={14} /> New
 					</Button>
 				</div>
-				{@render itemList(
-					"strategy",
-					strategyStore.strategies,
-					strategyStore.loading,
-					"No strategies yet",
-					"Create one to start tagging trades."
-				)}
+				{@render itemList("strategy", strategyStore.strategies, strategyStore.loading, "No strategies yet", "Create one to start tagging trades.")}
 			</section>
 
 			<section class="space-y-3">
@@ -208,76 +316,128 @@
 						size="sm"
 						class="cursor-pointer rounded-md bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
 					>
-						<PlusIcon size={14} />
-						New
+						<PlusIcon size={14} /> New
 					</Button>
 				</div>
-				{@render itemList(
-					"mistake",
-					mistakeStore.mistakes,
-					mistakeStore.loading,
-					"No mistakes catalogued",
-					"Add common errors you want to track (e.g. \"Moved stop\")."
-				)}
+				{@render itemList("mistake", mistakeStore.mistakes, mistakeStore.loading, "No mistakes catalogued", "Add common errors you want to track (e.g. \"Moved stop\").")}
 			</section>
 		</div>
-
-		<Sheet.Root
-			bind:open={sheetOpen}
-			onOpenChange={(o: boolean) => {
-				if (!o) closeSheet();
-			}}
-		>
-			<Sheet.Content side="right" class="w-[min(100vw,560px)] sm:max-w-[560px]">
-				<Sheet.Header>
-					<Sheet.Title>
-						{isEditing ? "Edit" : "New"}
-						{kind === "strategy" ? "strategy" : "mistake"}
-					</Sheet.Title>
-					<Sheet.Description>
-						{kind === "strategy"
-							? "A setup or pattern you trade."
-							: "An execution error you want to flag on closed trades."}
-					</Sheet.Description>
-				</Sheet.Header>
-
-<div class="flex-1 overflow-y-auto space-y-4 px-4 pb-4">
-					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Name</div>
-						<Input
-							bind:value={formName}
-							placeholder={kind === "strategy"
-								? "e.g. ORB, Liquidity sweep"
-								: "e.g. Moved stop, Chased entry"}
-							class="rounded-md"
-						/>
-					</div>
-					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Description</div>
-						<textarea
-							bind:value={formDescription}
-							rows="3"
-							placeholder="Optional"
-							class="border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[72px] w-full rounded-md border px-3 py-2 text-xs shadow-xs outline-none focus-visible:ring-1"
-						></textarea>
-					</div>
-				</div>
-
-				<Sheet.Footer class="border-t">
-					<div class="flex justify-end gap-2">
-						<Button variant="outline" class="rounded-md cursor-pointer" onclick={closeSheet}>
-							Cancel
-						</Button>
-						<Button
-							class="rounded-md bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground cursor-pointer"
-							disabled={saving || !formName.trim()}
-							onclick={submit}
-						>
-							{saving ? "Saving…" : isEditing ? "Save changes" : "Create"}
-						</Button>
-					</div>
-				</Sheet.Footer>
-			</Sheet.Content>
-		</Sheet.Root>
 	</div>
 </ScrollArea>
+
+<!-- Trades dialog -->
+<Dialog.Root bind:open={dialogOpen}>
+	<Dialog.Content class="sm:max-w-lg max-h-[80vh] flex flex-col">
+		<Dialog.Header>
+			<Dialog.Title>{dialogItem?.name}</Dialog.Title>
+			<Dialog.Description>
+				{dialogTrades.length} trade{dialogTrades.length === 1 ? "" : "s"} tagged with this {dialogKind}.
+			</Dialog.Description>
+		</Dialog.Header>
+
+		<div class="flex-1 overflow-y-auto">
+			{#if dialogTrades.length === 0}
+				<div class="py-10 text-center text-sm text-muted-foreground">No trades tagged yet.</div>
+			{:else}
+				<div class="overflow-x-auto">
+					<table class="w-full text-sm">
+						<thead class="bg-muted/30 text-muted-foreground">
+							<tr class="[&>th]:px-4 [&>th]:py-2 [&>th]:font-medium [&>th]:text-left [&>th]:whitespace-nowrap">
+								<th>Symbol</th>
+								<th>Side</th>
+								<th>Status</th>
+								<th>P&L</th>
+								<th>Date</th>
+							</tr>
+						</thead>
+						<tbody class="[&>tr:not(:last-child)]:border-b">
+							{#each dialogTrades as t (t.id)}
+								{@const pnl = t.pnl != null && Number.isFinite(t.pnl) ? t.pnl : null}
+								{@const side = (t.side ?? "").toLowerCase()}
+								<tr class="[&>td]:px-4 [&>td]:py-2.5 hover:bg-muted/30">
+									<td class="font-medium text-xs">{t.symbol ?? "—"}</td>
+									<td>
+										<span class={[
+											"inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium capitalize",
+											side === "long" ? "bg-emerald-700/10 text-emerald-700 dark:text-emerald-400" : "bg-rose-700/10 text-rose-700 dark:text-rose-400",
+										]}>
+											{#if side === "long"}<ChartLineUpIcon size={10} />{:else}<ChartLineDownIcon size={10} />{/if}
+											{t.side ?? "—"}
+										</span>
+									</td>
+									<td>
+										<span class={[
+											"inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium capitalize",
+											t.status === "open" ? "bg-amber-700/10 text-amber-700 dark:text-amber-400" : "bg-muted text-muted-foreground",
+										]}>
+											{t.status ?? "—"}
+										</span>
+									</td>
+									<td class={[
+										"text-xs font-medium tabular-nums",
+										pnl != null && pnl > 0 && "text-emerald-700 dark:text-emerald-400",
+										pnl != null && pnl < 0 && "text-rose-700 dark:text-rose-400",
+										(pnl == null || pnl === 0) && "text-muted-foreground",
+									]}>
+										{t.status === "open" ? "—" : fmtUsd(pnl)}
+									</td>
+									<td class="text-xs text-muted-foreground tabular-nums">{fmtDate(t.opened_at)}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
+	</Dialog.Content>
+</Dialog.Root>
+
+<!-- Edit / create sheet -->
+<Sheet.Root bind:open={sheetOpen} onOpenChange={(o: boolean) => { if (!o) closeSheet(); }}>
+	<Sheet.Content side="right" class="w-[min(100vw,560px)] sm:max-w-[560px]">
+		<Sheet.Header>
+			<Sheet.Title>
+				{isEditing ? "Edit" : "New"}
+				{kind === "strategy" ? "strategy" : "mistake"}
+			</Sheet.Title>
+			<Sheet.Description>
+				{kind === "strategy"
+					? "A setup or pattern you trade."
+					: "An execution error you want to flag on closed trades."}
+			</Sheet.Description>
+		</Sheet.Header>
+
+		<div class="flex-1 overflow-y-auto space-y-4 px-4 pb-4">
+			<div class="space-y-1.5">
+				<div class="text-xs font-medium">Name</div>
+				<Input
+					bind:value={formName}
+					placeholder={kind === "strategy" ? "e.g. ORB, Liquidity sweep" : "e.g. Moved stop, Chased entry"}
+					class="rounded-md"
+				/>
+			</div>
+			<div class="space-y-1.5">
+				<div class="text-xs font-medium">Description</div>
+				<textarea
+					bind:value={formDescription}
+					rows="3"
+					placeholder="Optional"
+					class="border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[72px] w-full rounded-md border px-3 py-2 text-xs shadow-xs outline-none focus-visible:ring-1"
+				></textarea>
+			</div>
+		</div>
+
+		<Sheet.Footer class="border-t">
+			<div class="flex justify-end gap-2">
+				<Button variant="outline" class="rounded-md cursor-pointer" onclick={closeSheet}>Cancel</Button>
+				<Button
+					class="rounded-md bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground cursor-pointer"
+					disabled={saving || !formName.trim()}
+					onclick={submit}
+				>
+					{saving ? "Saving…" : isEditing ? "Save changes" : "Create"}
+				</Button>
+			</div>
+		</Sheet.Footer>
+	</Sheet.Content>
+</Sheet.Root>
