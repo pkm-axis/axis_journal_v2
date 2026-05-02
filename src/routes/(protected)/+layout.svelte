@@ -60,13 +60,6 @@
 		return () => holder.subscription?.unsubscribe();
 	});
 
-    $effect(() => {
-        if (!session?.user?.id) return;
-
-        accountStore.clear();
-        tradeStore.clear();
-    });
-
 	const sidebarUser = $derived.by(() => {
 		const u = session?.user;
 
