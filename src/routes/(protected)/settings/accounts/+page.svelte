@@ -4,9 +4,10 @@
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
 	import * as Select from "$lib/components/ui/select/index.js";
 	import { Skeleton } from "$lib/components/ui/skeleton";
-	import { PencilSimpleIcon, PlusIcon, TrashIcon, LockSimpleIcon } from "phosphor-svelte";
+	import { PencilSimpleIcon, PlusIcon, TrashIcon, LockSimpleIcon, ArrowCounterClockwiseIcon } from "phosphor-svelte";
 	import { supabase } from "$lib/supabase/client";
 	import { accountStore, type Account } from "$lib/stores/accounts.svelte";
+	import { toast } from "svelte-sonner";
 
 	const ACCOUNT_TYPES = ["live", "demo", "prop firm", "paper"];
 	const loading = $derived(accountStore.loading);
@@ -23,10 +24,12 @@
 	let formDailyLossLimit = $state<string>("");
 	let formConsistencyRule = $state("");
 	let formMaxContracts = $state("");
+	let formChallengeCost = $state<string>("");
+	let formProfitSplit = $state<string>("");
 	let saving = $state(false);
-	let error = $state<string | null>(null);
 
 	const isPropFirm = $derived(formType === "prop firm");
+	const isFunded = $derived(formPropFirmType.trim().toLowerCase() === "funded");
 
 	// An account is "graduated" if another account points to it as parent.
 	const graduatedIds = $derived(
@@ -48,7 +51,8 @@
 		formDailyLossLimit = "";
 		formConsistencyRule = "";
 		formMaxContracts = "";
-		error = null;
+		formChallengeCost = "";
+		formProfitSplit = "";
 	}
 
 	function openCreate() {
@@ -71,6 +75,8 @@
 		formDailyLossLimit = a.prop_firm_daily_loss_limit != null ? String(a.prop_firm_daily_loss_limit) : "";
 		formConsistencyRule = a.prop_firm_consistency_rule ?? "";
 		formMaxContracts = a.prop_firm_max_contracts ?? "";
+		formChallengeCost = a.challenge_cost != null ? String(a.challenge_cost) : "";
+		formProfitSplit = a.profit_split != null ? String(a.profit_split * 100) : "";
 		dialogOpen = true;
 	}
 
@@ -89,11 +95,10 @@
 	async function submit() {
 		const name = formName.trim();
 		if (!name) {
-			error = "Name is required.";
+			toast.error("Name is required.");
 			return;
 		}
 		saving = true;
-		error = null;
 		try {
 			const payload: Record<string, unknown> = {
 				name,
@@ -108,17 +113,35 @@
 				payload.prop_firm_daily_loss_limit = numOrNull(formDailyLossLimit);
 				payload.prop_firm_consistency_rule = strOrNull(formConsistencyRule);
 				payload.prop_firm_max_contracts = strOrNull(formMaxContracts);
+				payload.challenge_cost = numOrNull(formChallengeCost);
+				const rawSplit = parseFloat(String(formProfitSplit));
+				payload.profit_split = Number.isFinite(rawSplit) && rawSplit > 0 ? rawSplit / 100 : null;
 			}
 			if (editingId) {
 				await accountStore.updateAccount(supabase, editingId, payload);
+				toast.success("Account updated.");
 			} else {
 				await accountStore.createAccount(supabase, payload);
+				toast.success("Account created.");
 			}
 			dialogOpen = false;
 		} catch (e) {
-			error = e instanceof Error ? e.message : "Failed to save.";
+			toast.error(e instanceof Error ? e.message : "Failed to save.");
 		} finally {
 			saving = false;
+		}
+	}
+
+	async function reset(a: Account) {
+		const ok = confirm(`Reset "${a.name}"? All trades and payouts will be permanently deleted, but the account will remain.`);
+		if (!ok) return;
+		try {
+			const res = await fetch(`/api/accounts/${a.id}/reset`, { method: "POST" });
+			const body = await res.json();
+			if (!body.success) throw new Error(body.message);
+			toast.success(`"${a.name}" has been reset.`);
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : "Failed to reset.");
 		}
 	}
 
@@ -127,8 +150,9 @@
 		if (!ok) return;
 		try {
 			await accountStore.deleteAccount(supabase, a.id);
+			toast.success(`"${a.name}" deleted.`);
 		} catch (e) {
-			alert(e instanceof Error ? e.message : "Failed to delete.");
+			toast.error(e instanceof Error ? e.message : "Failed to delete.");
 		}
 	}
 
@@ -170,29 +194,51 @@
 				<div class="mt-1 text-sm text-muted-foreground">Create your first account to start tracking trades.</div>
 			</div>
 		{:else}
+			{@const grouped = (() => {
+				const propFirmMap = new Map<string, typeof accountStore.accounts>();
+				const others: typeof accountStore.accounts = [];
+				for (const a of accountStore.accounts) {
+					if (a.account_type === "prop firm" && a.prop_firm_name) {
+						if (!propFirmMap.has(a.prop_firm_name)) propFirmMap.set(a.prop_firm_name, []);
+						propFirmMap.get(a.prop_firm_name)!.push(a);
+					} else {
+						others.push(a);
+					}
+				}
+				const sections: { label: string | null; accounts: typeof accountStore.accounts }[] = [];
+				for (const [name, accts] of propFirmMap) sections.push({ label: name, accounts: accts });
+				if (others.length > 0) sections.push({ label: null, accounts: others });
+				return sections;
+			})()}
 			<ul class="divide-y">
-				{#each accountStore.accounts as a (a.id)}
-					{@const isActive = accountStore.activeAccountId === a.id}
-					{@const isGraduated = graduatedIds.has(a.id)}
-					<li class="flex items-center justify-between gap-3 px-4 py-3">
-						<div class="min-w-0">
-							<div class="flex items-center gap-2">
-								<div class="text-sm font-medium">{a.name}</div>
-								{#if isActive}
-									<span class="inline-flex items-center rounded-md bg-emerald-700/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
-										Active
-									</span>
-								{/if}
-								{#if isGraduated}
-									<span class="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-										<LockSimpleIcon size={10} weight="fill" /> Graduated
-									</span>
-								{/if}
+				{#each grouped as section}
+					{#if section.label}
+						<li class="flex items-center gap-2 bg-muted/30 px-4 py-2">
+							<span class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{section.label}</span>
+						</li>
+					{/if}
+					{#each section.accounts as a (a.id)}
+						{@const isActive = accountStore.activeAccountId === a.id}
+						{@const isGraduated = graduatedIds.has(a.id)}
+						<li class="flex items-center justify-between gap-3 px-4 py-3">
+							<div class="min-w-0">
+								<div class="flex items-center gap-2">
+									<div class="text-sm font-medium">{a.name}</div>
+									{#if isActive}
+										<span class="inline-flex items-center rounded-md bg-emerald-700/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+											Active
+										</span>
+									{/if}
+									{#if isGraduated}
+										<span class="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+											<LockSimpleIcon size={10} weight="fill" /> Graduated
+										</span>
+									{/if}
+								</div>
+								<div class="mt-0.5 text-xs text-muted-foreground capitalize">
+									{a.account_type}{#if a.account_type === "prop firm" && a.prop_firm_type} · {a.prop_firm_type}{/if}
+								</div>
 							</div>
-							<div class="mt-0.5 text-xs text-muted-foreground capitalize">
-								{a.account_type}{#if a.account_type === "prop firm" && a.prop_firm_name} · {a.prop_firm_name}{/if}
-							</div>
-						</div>
 						<div class="flex items-center gap-1">
 							{#if !isActive}
 								<button type="button" class="text-xs text-primary hover:underline cursor-pointer mr-2" onclick={() => setActive(a)}>
@@ -213,6 +259,16 @@
 							<Button
 								variant="ghost"
 								size="icon"
+								class="h-8 w-8 cursor-pointer text-amber-600 hover:bg-amber-600/10 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-400"
+								aria-label="Reset"
+								title="Delete all trades and payouts, keep the account"
+								onclick={() => reset(a)}
+							>
+								<ArrowCounterClockwiseIcon size={16} />
+							</Button>
+							<Button
+								variant="ghost"
+								size="icon"
 								class="h-8 w-8 cursor-pointer text-rose-700 hover:bg-rose-700/10 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-400 disabled:cursor-not-allowed"
 								aria-label="Delete"
 								disabled={isGraduated}
@@ -223,6 +279,7 @@
 							</Button>
 						</div>
 					</li>
+				{/each}
 				{/each}
 			</ul>
 		{/if}
@@ -278,8 +335,11 @@
 					</div>
 					<div class="grid grid-cols-2 gap-3">
 						<div class="space-y-1.5">
-							<div class="text-xs font-medium">Profit target ($)</div>
-							<Input bind:value={formProfitTarget} type="number" inputmode="decimal" placeholder="3000" class="rounded-md" />
+							<div class="text-xs font-medium">{isFunded ? "Min. payout threshold ($)" : "Profit target ($)"}</div>
+							<Input bind:value={formProfitTarget} type="number" inputmode="decimal" placeholder={isFunded ? "e.g. 2000" : "3000"} class="rounded-md" />
+							{#if isFunded}
+								<p class="text-[11px] text-muted-foreground">Minimum profit required before you can request a payout.</p>
+							{/if}
 						</div>
 						<div class="space-y-1.5">
 							<div class="text-xs font-medium">Max drawdown ($)</div>
@@ -301,14 +361,23 @@
 						<Input bind:value={formConsistencyRule} placeholder="e.g. 30% (best day max share of total profit)" class="rounded-md" />
 						<p class="text-[11px] text-muted-foreground">Enter the cap as a percentage (e.g. 30% or 0.3). Leave blank if not applicable.</p>
 					</div>
+					{#if !isFunded}
+						<div class="space-y-1.5">
+							<div class="text-xs font-medium">Challenge cost ($)</div>
+							<Input bind:value={formChallengeCost} type="number" inputmode="decimal" placeholder="e.g. 149" class="rounded-md" />
+							<p class="text-[11px] text-muted-foreground">What you paid for this evaluation. Used to calculate ROI and break-even.</p>
+						</div>
+					{/if}
+					{#if isFunded}
+						<div class="space-y-1.5">
+							<div class="text-xs font-medium">Profit split (%)</div>
+							<Input bind:value={formProfitSplit} type="number" inputmode="decimal" placeholder="e.g. 80" class="rounded-md" />
+							<p class="text-[11px] text-muted-foreground">Your share of profits on payouts (e.g. 80 for an 80/20 split).</p>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
-			{#if error}
-				<div class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-					{error}
-				</div>
-			{/if}
 		</div>
 
 		<Dialog.Footer>

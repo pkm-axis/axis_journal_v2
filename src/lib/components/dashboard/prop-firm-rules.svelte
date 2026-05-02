@@ -171,9 +171,11 @@
 	</div>
 
 	<div class="grid gap-px bg-border sm:grid-cols-2 lg:grid-cols-4">
-		<!-- Profit target -->
+		<!-- Profit target (eval) / Min. payout threshold (funded) -->
 		<div class="bg-background p-4">
-			<div class="text-xs text-muted-foreground">Profit target</div>
+			<div class="text-xs text-muted-foreground">
+				{isEvaluation ? "Profit target" : "Min. payout"}
+			</div>
 			{#if profitTarget == null}
 				<div class="mt-1 text-sm text-muted-foreground">Not set</div>
 			{:else}
@@ -198,7 +200,11 @@
 					></div>
 				</div>
 				<div class="mt-1 text-[11px] text-muted-foreground">
-					{reached ? "Target reached" : `${fmtUsd(profitTarget - netPnl)} to go`}
+					{#if isEvaluation}
+						{reached ? "Target reached" : `${fmtUsd(profitTarget - netPnl)} to go`}
+					{:else}
+						{reached ? "Eligible to request payout" : `${fmtUsd(profitTarget - netPnl)} until eligible`}
+					{/if}
 				</div>
 			{/if}
 		</div>

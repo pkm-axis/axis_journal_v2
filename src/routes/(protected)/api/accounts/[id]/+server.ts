@@ -36,6 +36,8 @@ export const PATCH: RequestHandler = async ({ params, request, locals: { supabas
 		"prop_firm_profit_target",
 		"prop_firm_max_drawdown",
 		"prop_firm_daily_loss_limit",
+		"challenge_cost",
+		"profit_split",
 	];
 	for (const f of stringFields) {
 		if (f in body) {

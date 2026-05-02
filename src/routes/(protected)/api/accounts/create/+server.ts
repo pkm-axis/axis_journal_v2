@@ -23,6 +23,8 @@ export async function POST({ request, locals: { supabase, safeGetSession } }) {
         prop_firm_daily_loss_limit,
         prop_firm_consistency_rule,
         prop_firm_max_contracts,
+        challenge_cost,
+        profit_split,
         parent_account_id,
       } = body;
 
@@ -45,6 +47,8 @@ export async function POST({ request, locals: { supabase, safeGetSession } }) {
                 prop_firm_daily_loss_limit,
                 prop_firm_consistency_rule,
                 prop_firm_max_contracts,
+                challenge_cost,
+                profit_split,
                 parent_account_id,
             }
         ])

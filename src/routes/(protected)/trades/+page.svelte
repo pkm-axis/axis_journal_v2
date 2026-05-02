@@ -27,12 +27,14 @@
 	import { supabase } from "$lib/supabase/client";
 	import { tradeStore } from "$lib/stores/trades.svelte";
 	import { accountStore } from "$lib/stores/accounts.svelte";
+	import { payoutStore } from "$lib/stores/payouts.svelte";
 	import { instrumentStore, instrumentPnl } from "$lib/stores/instruments.svelte";
 	import { strategyStore } from "$lib/stores/strategies.svelte";
 	import { mistakeStore } from "$lib/stores/mistakes.svelte";
 	import { MultiSelect } from "$lib/components/ui/multi-select";
 	import { Skeleton } from "$lib/components/ui/skeleton";
 	import PnlShareDialog from "$lib/components/pnl-share-sheet/pnl-share-dialog.svelte";
+	import { toast } from "svelte-sonner";
 
 	interface TradeRow {
 		id: string;
@@ -70,7 +72,6 @@
 
 	let session = $state<Session | null>(null);
 	let viewMode = $state<"table" | "gallery">("table");
-	let saveError = $state<string | null>(null);
 	let saving = $state(false);
 	let deleting = $state(false);
 	let shareSheetOpen = $state(false);
@@ -84,13 +85,13 @@
 	async function deleteTrade() {
 		if (!editingTradeId) return;
 		if (!confirm("Delete this trade? This cannot be undone.")) return;
-		saveError = null;
 		deleting = true;
 		try {
 			await tradeStore.deleteTrade(supabase, editingTradeId);
 			closeTradeSheet();
+			toast.success("Trade deleted.");
 		} catch (e) {
-			saveError = e instanceof Error ? e.message : "Failed to delete trade.";
+			toast.error(e instanceof Error ? e.message : "Failed to delete trade.");
 		} finally {
 			deleting = false;
 		}
@@ -132,6 +133,12 @@
 	let formScreenshotPreview = $state<string | null>(null);
 	let formExistingScreenshotUrl = $state<string | null>(null);
 
+	let payoutSheetOpen = $state(false);
+	let payoutGross = $state("");
+	let payoutDate = $state(toDatetimeLocalValue(new Date()));
+	let payoutNotes = $state("");
+	let payoutSaving = $state(false);
+
 	function resetNewTradeForm() {
 		formSymbol = "";
 		formSide = "long";
@@ -158,7 +165,7 @@
 
 	function closeTradeSheet() {
 		tradeSheetOpen = false;
-		saveError = null;
+
 		editingTradeId = null;
 		resetNewTradeForm();
 	}
@@ -170,7 +177,7 @@
 	}
 
 	function openTradeSheetEdit(t: TradeRow) {
-		saveError = null;
+
 		editingTradeId = t.id;
 		formSymbol = t.symbol ?? "";
 		formSide = normalizeSide(t.side) ?? "long";
@@ -311,6 +318,24 @@
 		return { count: rows.length, netPnl, winRate, avgRr };
 	});
 
+	const activeAccount = $derived(
+		accountStore.accounts.find((a) => a.id === accountStore.activeAccountId) ?? null
+	);
+
+	const isFundedPropFirm = $derived(
+		activeAccount?.account_type === "prop firm" && !!activeAccount?.parent_account_id
+	);
+
+	const propFirmStats = $derived.by(() => {
+		if (!isFundedPropFirm || !activeAccount) return null;
+		const parentAccount = accountStore.accounts.find((a) => a.id === activeAccount.parent_account_id);
+		const cost = parentAccount?.challenge_cost;
+		const totalPayouts = payoutStore.payouts.filter((p) => p.status === "received").reduce((sum, p) => sum + p.amount, 0);
+		const roi = cost && cost > 0 ? (totalPayouts / cost) * 100 : null;
+		const remaining = cost && cost > 0 ? Math.max(0, cost - totalPayouts) : null;
+		return { cost: cost ?? null, totalPayouts, roi, remaining, breakEvenReached: remaining !== null && remaining === 0 };
+	});
+
 	const formPlannedRR = $derived.by(() => {
 		const e = num(formEntryPrice);
 		const sl = num(formStopLoss);
@@ -406,6 +431,34 @@
 		return data.publicUrl;
 	}
 
+	async function submitPayout() {
+		const gross = Number(payoutGross);
+		if (!payoutGross || !Number.isFinite(gross) || gross <= 0) {
+			toast.error("Enter a valid gross profit amount.");
+			return;
+		}
+		const accountId = accountStore.activeAccountId;
+		if (!accountId) return;
+		payoutSaving = true;
+		try {
+			await payoutStore.createPayout(supabase, {
+				account_id: accountId,
+				gross_amount: gross,
+				payout_date: new Date(payoutDate).toISOString(),
+				notes: payoutNotes.trim() || null,
+			});
+			payoutSheetOpen = false;
+			payoutGross = "";
+			payoutDate = toDatetimeLocalValue(new Date());
+			payoutNotes = "";
+			toast.success("Payout requested.");
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : "Failed to save payout.");
+		} finally {
+			payoutSaving = false;
+		}
+	}
+
 	async function refreshSession() {
 		const {
 			data: { session: s }
@@ -414,15 +467,14 @@
 	}
 
 	async function submitTradeForm() {
-		saveError = null;
 		if (!session?.user?.id) {
-			saveError = "Sign in to save a trade.";
+			toast.error("Sign in to save a trade.");
 			return;
 		}
 
 		const accountId = accountStore.activeAccountId;
 		if (!accountId) {
-			saveError = "Select an account in the sidebar before saving a trade.";
+			toast.error("Select an account in the sidebar before saving a trade.");
 			return;
 		}
 
@@ -432,20 +484,21 @@
 		const stopLoss = num(formStopLoss);
 		const takeProfit = num(formTakeProfit);
 		if (!symbol || entryPrice == null || qty == null) {
-			saveError = "Symbol, entry price, and quantity are required.";
+			toast.error("Symbol, entry price, and quantity are required.");
 			return;
 		}
 		if (stopLoss == null || takeProfit == null) {
-			saveError = "Stop loss and take profit are required to record the trade and risk/reward.";
+			toast.error("Stop loss and take profit are required to record the trade and risk/reward.");
 			return;
 		}
 
 		const rr = riskRewardRatio(entryPrice, stopLoss, takeProfit, formSide);
 		if (rr == null) {
-			saveError =
+			toast.error(
 				formSide === "long"
 					? "For a long, stop must be below entry and take profit above entry."
-					: "For a short, stop must be above entry and take profit below entry.";
+					: "For a short, stop must be above entry and take profit below entry."
+			);
 			return;
 		}
 
@@ -528,8 +581,9 @@
 			}
 
 			closeTradeSheet();
+			toast.success(editingTradeId ? "Trade updated." : "Trade saved.");
 		} catch (e) {
-			saveError = e instanceof Error ? e.message : "Failed to save trade.";
+			toast.error(e instanceof Error ? e.message : "Failed to save trade.");
 		} finally {
 			saving = false;
 		}
@@ -549,6 +603,16 @@
 	$effect(() => {
 		void accountStore.activeAccountId;
 		void tradeStore.getTradesByAccount(supabase);
+	});
+
+	$effect(() => {
+		const id = accountStore.activeAccountId;
+		const account = accountStore.accounts.find((a) => a.id === id);
+		if (id && account?.account_type === "prop firm" && account?.parent_account_id) {
+			void payoutStore.getPayoutsByAccount(supabase, id);
+		} else {
+			payoutStore.clear();
+		}
 	});
 
     $effect(() => {
@@ -575,7 +639,7 @@
 	</Breadcrumb.Root>
 </HeaderNavbar>
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
-	<div class="container mx-auto max-w-6xl space-y-4 p-4 md:p-6">
+	<div class="container mx-auto max-w-8xl space-y-4 p-4 md:p-6">
 		<div class="flex items-center justify-between">
 			<div>
 				<h1 class="text-2xl font-bold tracking-tight">Trades</h1>
@@ -583,8 +647,8 @@
 			</div>
 			<Button
 				onclick={openTradeSheetCreate}
-				variant="outline"
-				class="cursor-pointer rounded-md bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
+				variant="default"
+				class="cursor-pointer rounded-md"
 				disabled={!session || !accountStore.activeAccountId}
 			>
 				<PlusIcon />
@@ -703,17 +767,133 @@
 			{/if}
 		</div>
 
+		{#if isFundedPropFirm}
+			<div class="grid gap-3 sm:grid-cols-2">
+				{#if propFirmStats?.roi != null}
+					<div class={[
+						"rounded-md border p-4 transition-colors",
+						propFirmStats.roi > 0 && "border-emerald-700/30 bg-emerald-700/5",
+						propFirmStats.roi < 0 && "border-rose-700/30 bg-rose-700/5",
+						propFirmStats.roi === 0 && "bg-background"
+					]}>
+						<div class="text-xs text-muted-foreground">ROI on challenge</div>
+						<div class={[
+							"mt-1 text-2xl font-semibold tabular-nums",
+							propFirmStats.roi > 0 && "text-emerald-700 dark:text-emerald-400",
+							propFirmStats.roi < 0 && "text-rose-700 dark:text-rose-400"
+						]}>
+							{propFirmStats.roi > 0 ? "+" : ""}{propFirmStats.roi.toFixed(1)}%
+						</div>
+						<div class="mt-0.5 text-[11px] text-muted-foreground">
+							{formatUsd(propFirmStats.totalPayouts)} paid out · cost {formatUsd(propFirmStats.cost)}
+						</div>
+					</div>
+					<div class={[
+						"rounded-md border p-4 transition-colors",
+						propFirmStats.breakEvenReached ? "border-emerald-700/30 bg-emerald-700/5" : "bg-background"
+					]}>
+						<div class="text-xs text-muted-foreground">Break-even</div>
+						<div class={[
+							"mt-1 text-2xl font-semibold tabular-nums",
+							propFirmStats.breakEvenReached && "text-emerald-700 dark:text-emerald-400"
+						]}>
+							{propFirmStats.breakEvenReached ? "Reached" : formatUsd(propFirmStats.remaining)}
+						</div>
+						<div class="mt-0.5 text-[11px] text-muted-foreground">
+							{propFirmStats.breakEvenReached ? "Challenge cost recovered via payouts" : "More payouts needed to recover cost"}
+						</div>
+					</div>
+				{:else}
+					<div class="rounded-md border bg-background p-4 sm:col-span-2">
+						<div class="text-xs text-muted-foreground">ROI on challenge</div>
+						<div class="mt-1 text-sm font-medium text-muted-foreground">—</div>
+						<div class="mt-0.5 text-[11px] text-muted-foreground">Add a challenge cost to the evaluation account to track ROI.</div>
+					</div>
+				{/if}
+			</div>
+
+			<!-- Payout log -->
+			<div class="rounded-md border bg-background">
+				<div class="flex items-center justify-between gap-3 border-b px-4 py-3">
+					<div class="text-sm font-medium">Payouts</div>
+					<Button variant="outline" size="sm" class="rounded-md cursor-pointer h-7 text-xs" onclick={() => (payoutSheetOpen = true)}>
+						<PlusIcon size={12} /> Add payout
+					</Button>
+				</div>
+				{#if payoutStore.loading}
+					<div class="p-4 space-y-2">
+						{#each [0, 1, 2] as _}
+							<div class="flex items-center justify-between">
+								<Skeleton class="h-3.5 w-24" />
+								<Skeleton class="h-3.5 w-16" />
+							</div>
+						{/each}
+					</div>
+				{:else if payoutStore.payouts.length === 0}
+					<div class="p-8 text-center text-sm text-muted-foreground">No payouts recorded yet.</div>
+				{:else}
+					<ul class="divide-y">
+						{#each payoutStore.payouts as p (p.id)}
+							{@const statusOrder = ["requested", "pending", "approved", "received"] as const}
+							{@const nextStatus = statusOrder[statusOrder.indexOf(p.status) + 1] ?? null}
+							{@const statusColors: Record<string, string> = {
+								requested: "bg-muted text-muted-foreground",
+								pending:    "bg-amber-700/10 text-amber-700 dark:text-amber-400",
+								approved:   "bg-blue-700/10 text-blue-700 dark:text-blue-400",
+								received:   "bg-emerald-700/10 text-emerald-700 dark:text-emerald-400",
+							}}
+							<li class="flex items-start justify-between gap-3 px-4 py-3">
+								<div class="min-w-0 space-y-1">
+									<div class="flex items-center gap-2">
+										<span class="text-sm font-medium tabular-nums text-emerald-700 dark:text-emerald-400">{formatUsd(p.amount)}</span>
+										{#if p.gross_amount != null && p.profit_split != null}
+											<span class="text-xs text-muted-foreground">({Math.round(p.profit_split * 100)}% of {formatUsd(p.gross_amount)})</span>
+										{/if}
+									</div>
+									<div class="flex items-center gap-2">
+										<span class={["inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium capitalize", statusColors[p.status]]}>
+											{p.status}
+										</span>
+										<span class="text-xs text-muted-foreground">{formatWhen(p.payout_date)}{p.notes ? ` · ${p.notes}` : ""}</span>
+									</div>
+								</div>
+								<div class="flex items-center gap-0.5 shrink-0">
+									{#if nextStatus}
+										<Button
+											variant="outline"
+											size="sm"
+											class="h-7 rounded-md cursor-pointer text-[10px] capitalize"
+											onclick={() => payoutStore.updateStatus(supabase, p.id, nextStatus, p.account_id)}
+										>
+											Mark {nextStatus}
+										</Button>
+									{/if}
+									<Button
+										variant="ghost"
+										size="icon"
+										class="h-7 w-7 cursor-pointer text-rose-700 hover:bg-rose-700/10 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-400"
+										aria-label="Delete payout"
+										onclick={() => payoutStore.deletePayout(supabase, p.id, p.account_id)}
+									>
+										<TrashIcon size={14} />
+									</Button>
+								</div>
+							</li>
+						{/each}
+					</ul>
+					<div class="border-t px-4 py-2.5 text-xs text-muted-foreground">
+						Received: <span class="font-medium tabular-nums text-foreground">{formatUsd(payoutStore.payouts.filter(p => p.status === "received").reduce((s, p) => s + p.amount, 0))}</span>
+						<span class="mx-1.5">·</span>
+						Total requested: <span class="tabular-nums">{formatUsd(payoutStore.payouts.reduce((s, p) => s + p.amount, 0))}</span>
+					</div>
+				{/if}
+			</div>
+		{/if}
+
 		<div class="rounded-md border bg-background">
 			<div class="flex items-center justify-between gap-3 border-b px-4 py-3">
 				<div class="text-sm font-medium">All trades</div>
 				<div class="flex items-center gap-2">
-					<div class="text-xs text-muted-foreground">
-						{#if loading}
-							Loading…
-						{:else}
-							Showing <span class="tabular-nums">{filteredTrades.length}</span>
-						{/if}
-					</div>
 					<div class="flex items-center rounded-md border p-0.5 gap-0.5">
 						<Button
 							variant="ghost"
@@ -929,6 +1109,11 @@
 					</table>
 				</div>
 			{/if}
+			{#if !loading && filteredTrades.length > 0}
+				<div class="border-t px-4 py-2.5 text-xs text-muted-foreground text-right">
+					Showing <span class="tabular-nums">{filteredTrades.length}</span> {filteredTrades.length === 1 ? "trade" : "trades"}
+				</div>
+			{/if}
 		</div>
 
 		<Sheet.Root
@@ -947,13 +1132,7 @@
 					</Sheet.Description>
 				</Sheet.Header>
 
-				{#if saveError}
-					<div class="mx-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-						{saveError}
-					</div>
-				{/if}
-
-				<div class="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
+<div class="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
 					<div class="space-y-1.5">
 						<div class="text-xs font-medium">Symbol</div>
 						<!-- <Input bind:value={formSymbol} placeholder="e.g. ES, BTCUSDT" class="rounded-md" /> -->
@@ -1294,3 +1473,57 @@
 		{/if}
 	</div>
 </ScrollArea>
+
+<Sheet.Root bind:open={payoutSheetOpen}>
+	<Sheet.Content side="right" class="w-[min(100vw,400px)] sm:max-w-[400px]">
+		<Sheet.Header>
+			<Sheet.Title>Add payout</Sheet.Title>
+			<Sheet.Description>Record a payout received from this funded account.</Sheet.Description>
+		</Sheet.Header>
+
+<div class="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
+			<div class="space-y-1.5">
+				<div class="text-xs font-medium">Gross profit ($)</div>
+				<Input bind:value={payoutGross} type="number" inputmode="decimal" placeholder="e.g. 1000" class="rounded-md" />
+				{#if payoutGross && Number(payoutGross) > 0 && activeAccount?.profit_split}
+					{@const split = activeAccount.profit_split}
+					{@const payout = Number(payoutGross) * split}
+					<div class="rounded-md bg-muted/50 border px-3 py-2 text-xs space-y-0.5">
+						<div class="flex justify-between">
+							<span class="text-muted-foreground">Split</span>
+							<span>{Math.round(split * 100)}% / {Math.round((1 - split) * 100)}%</span>
+						</div>
+						<div class="flex justify-between font-medium">
+							<span class="text-muted-foreground">You receive</span>
+							<span class="text-emerald-700 dark:text-emerald-400">{formatUsd(payout)}</span>
+						</div>
+					</div>
+				{:else if payoutGross && Number(payoutGross) > 0}
+					<p class="text-[11px] text-muted-foreground">No profit split set on this account — set one in Settings → Accounts to enable auto-calculation.</p>
+				{/if}
+			</div>
+			<div class="space-y-1.5">
+				<div class="text-xs font-medium">Payout date</div>
+				<Input bind:value={payoutDate} type="datetime-local" class="rounded-md" />
+			</div>
+			<div class="space-y-1.5">
+				<div class="text-xs font-medium">Notes</div>
+				<textarea
+					bind:value={payoutNotes}
+					rows="3"
+					class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[72px] w-full rounded-md border px-3 py-2 text-xs shadow-xs outline-none focus-visible:ring-1 disabled:cursor-not-allowed disabled:opacity-50"
+					placeholder="Optional"
+				></textarea>
+			</div>
+		</div>
+
+		<Sheet.Footer class="border-t">
+			<div class="flex justify-end gap-2">
+				<Button variant="outline" class="rounded-md cursor-pointer" onclick={() => (payoutSheetOpen = false)}>Cancel</Button>
+				<Button class="rounded-md cursor-pointer" disabled={payoutSaving} onclick={submitPayout}>
+					{payoutSaving ? "Saving…" : "Request payout"}
+				</Button>
+			</div>
+		</Sheet.Footer>
+	</Sheet.Content>
+</Sheet.Root>

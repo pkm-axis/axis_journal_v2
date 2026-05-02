@@ -52,6 +52,8 @@
     let dailyLossLimit: number | null = $state(null);
     let consistencyRule: string = $state('');
     let maxContracts: string = $state('');
+    let challengeCost: number | null = $state(null);
+    let profitSplitPct: string = $state("");
 
     let newAccountOpen: boolean = $state(false);
     let creatingAccount: boolean = $state(false);
@@ -74,7 +76,9 @@
             prop_firm_max_drawdown: accountType === 'prop firm' ? maxDrawdown : null,
             prop_firm_daily_loss_limit: accountType === 'prop firm' ? dailyLossLimit : null,
             prop_firm_consistency_rule: accountType === 'prop firm' ? consistencyRule : null,
-            prop_firm_max_contracts: accountType === 'prop firm' ? maxContracts : null
+            prop_firm_max_contracts: accountType === 'prop firm' ? maxContracts : null,
+            challenge_cost: accountType === 'prop firm' ? challengeCost : null,
+            profit_split: accountType === 'prop firm' && profitSplitPct ? Number(profitSplitPct) / 100 : null,
         }
        await accountStore.createAccount(supabase, payload)
 
@@ -225,8 +229,8 @@
                 </div>
 
                 <div class="space-y-1.5">
-                    <div class="text-xs font-medium">Profit Target</div>
-                    <Input bind:value={profitTarget} type="number" placeholder="$3,000" class="rounded-md" />
+                    <div class="text-xs font-medium">{propFirmType === 'funded' ? 'Min. payout threshold ($)' : 'Profit Target'}</div>
+                    <Input bind:value={profitTarget} type="number" placeholder={propFirmType === 'funded' ? 'e.g. 2000' : '$3,000'} class="rounded-md" />
                 </div>
 
                 <div class="space-y-1.5">
@@ -248,6 +252,21 @@
                     <div class="text-xs font-medium">Max Contracts</div>
                     <Input bind:value={maxContracts} placeholder="4 minis/40 micros" class="rounded-md" />
                 </div>
+
+                {#if propFirmType !== 'funded'}
+                    <div class="space-y-1.5">
+                        <div class="text-xs font-medium">Challenge cost ($)</div>
+                        <Input bind:value={challengeCost} type="number" inputmode="decimal" placeholder="e.g. 149" class="rounded-md" />
+                        <p class="text-[11px] text-muted-foreground">What you paid for this evaluation. Used to calculate ROI and break-even.</p>
+                    </div>
+                {/if}
+                {#if propFirmType === 'funded'}
+                    <div class="space-y-1.5">
+                        <div class="text-xs font-medium">Profit split (%)</div>
+                        <Input bind:value={profitSplitPct} type="number" inputmode="decimal" placeholder="e.g. 80" class="rounded-md" />
+                        <p class="text-[11px] text-muted-foreground">Your share of profits on payouts (e.g. 80 for 80/20).</p>
+                    </div>
+                {/if}
             {/if}
         </div>
 

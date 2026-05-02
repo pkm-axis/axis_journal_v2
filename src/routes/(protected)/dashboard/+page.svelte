@@ -9,6 +9,7 @@
 	import { supabase } from "$lib/supabase/client";
 	import { tradeStore } from "$lib/stores/trades.svelte";
 	import { accountStore } from "$lib/stores/accounts.svelte";
+	import { toast } from "svelte-sonner";
 	import PropFirmRules from "$lib/components/dashboard/prop-firm-rules.svelte";
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
 	import { Input } from "$lib/components/ui/input";
@@ -109,6 +110,8 @@
 	let graduateDailyLoss = $state("");
 	let graduateMaxContracts = $state("");
 	let graduateConsistency = $state("");
+	let graduateMinPayout = $state("");
+	let graduateProfitSplit = $state("");
 	let graduateSaving = $state(false);
 	let graduateError = $state<string | null>(null);
 
@@ -121,19 +124,19 @@
 		graduateDailyLoss = activeAccount.prop_firm_daily_loss_limit != null ? String(activeAccount.prop_firm_daily_loss_limit) : "";
 		graduateMaxContracts = activeAccount.prop_firm_max_contracts ?? "";
 		graduateConsistency = activeAccount.prop_firm_consistency_rule ?? "";
+		graduateMinPayout = "";
+		graduateProfitSplit = "";
 		graduateError = null;
 		graduateOpen = true;
 	}
 
-	function numOrNull(v: string): number | null {
-		const t = v.trim();
-		if (!t) return null;
-		const n = Number(t);
+	function numOrNull(v: unknown): number | null {
+		const n = parseFloat(String(v));
 		return Number.isFinite(n) ? n : null;
 	}
 
-	function strOrNull(v: string): string | null {
-		const t = v.trim();
+	function strOrNull(v: unknown): string | null {
+		const t = String(v ?? "").trim();
 		return t ? t : null;
 	}
 
@@ -153,18 +156,20 @@
 				starting_balance: numOrNull(graduateBalance),
 				prop_firm_name: activeAccount.prop_firm_name ?? null,
 				prop_firm_type: strOrNull(graduatePhase),
-				prop_firm_profit_target: null,
+				prop_firm_profit_target: numOrNull(graduateMinPayout),
 				prop_firm_max_drawdown: numOrNull(graduateMaxDrawdown),
 				prop_firm_daily_loss_limit: numOrNull(graduateDailyLoss),
 				prop_firm_consistency_rule: strOrNull(graduateConsistency),
 				prop_firm_max_contracts: strOrNull(graduateMaxContracts),
 				parent_account_id: activeAccount.id,
+				profit_split: graduateProfitSplit ? parseFloat(String(graduateProfitSplit)) / 100 : null,
 			});
-			// Switch to the new account.
 			const newest = accountStore.accounts[accountStore.accounts.length - 1];
 			if (newest) accountStore.setActiveAccountId(newest.id);
 			graduateOpen = false;
+			toast.success(`${name} created. Welcome to funded!`);
 		} catch (e) {
+			toast.error(e instanceof Error ? e.message : "Failed to create funded account.");
 			graduateError = e instanceof Error ? e.message : "Failed to create funded account.";
 		} finally {
 			graduateSaving = false;
@@ -198,7 +203,7 @@
 </HeaderNavbar>
 
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
-	<div class="container mx-auto max-w-6xl space-y-4 p-4 md:p-6">
+	<div class="container mx-auto max-w-8xl space-y-4 p-4 md:p-6">
 		<div>
 			<h1 class="text-2xl font-bold tracking-tight">Dashboard</h1>
 			<p class="text-sm text-muted-foreground">Overview of the active account.</p>
@@ -447,8 +452,20 @@
 					<Input bind:value={graduateConsistency} placeholder="e.g. 30%" class="rounded-md" />
 				</div>
 			</div>
+			<div class="grid grid-cols-2 gap-3">
+				<div class="space-y-1.5">
+					<div class="text-xs font-medium">Min. payout threshold ($)</div>
+					<Input bind:value={graduateMinPayout} type="number" inputmode="decimal" placeholder="e.g. 2000" class="rounded-md" />
+					<p class="text-[11px] text-muted-foreground">Minimum profit before you can request a payout.</p>
+				</div>
+				<div class="space-y-1.5">
+					<div class="text-xs font-medium">Profit split (%)</div>
+					<Input bind:value={graduateProfitSplit} type="number" inputmode="decimal" placeholder="e.g. 80" class="rounded-md" />
+					<p class="text-[11px] text-muted-foreground">Your share of profits on payouts.</p>
+				</div>
+			</div>
 			<p class="text-[11px] text-muted-foreground">
-				No profit target — funded accounts are about staying within the rules. The new account will be linked to "{activeAccount?.name}".
+				The new account will be linked to "{activeAccount?.name}".
 			</p>
 
 			{#if graduateError}

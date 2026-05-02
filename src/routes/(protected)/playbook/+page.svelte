@@ -11,6 +11,7 @@
 	import { supabase } from "$lib/supabase/client";
 	import { strategyStore, type Strategy } from "$lib/stores/strategies.svelte";
 	import { mistakeStore, type Mistake } from "$lib/stores/mistakes.svelte";
+	import { toast } from "svelte-sonner";
 
 	type Kind = "strategy" | "mistake";
 	type Item = Strategy | Mistake;
@@ -21,7 +22,6 @@
 	let formName = $state("");
 	let formDescription = $state("");
 	let saving = $state(false);
-	let error = $state<string | null>(null);
 
 	const isEditing = $derived(editingId != null);
 
@@ -30,7 +30,7 @@
 		editingId = null;
 		formName = "";
 		formDescription = "";
-		error = null;
+
 		sheetOpen = true;
 	}
 
@@ -39,24 +39,23 @@
 		editingId = item.id;
 		formName = item.name;
 		formDescription = item.description ?? "";
-		error = null;
+
 		sheetOpen = true;
 	}
 
 	function closeSheet() {
 		sheetOpen = false;
 		editingId = null;
-		error = null;
+
 	}
 
 	async function submit() {
 		const name = formName.trim();
 		if (!name) {
-			error = "Name is required.";
+			toast.error("Name is required.");
 			return;
 		}
 		saving = true;
-		error = null;
 		try {
 			const description = formDescription.trim() || null;
 			if (kind === "strategy") {
@@ -67,8 +66,9 @@
 				else await mistakeStore.createMistake(supabase, { name, description });
 			}
 			closeSheet();
+			toast.success(editingId ? "Updated." : "Created.");
 		} catch (e) {
-			error = e instanceof Error ? e.message : "Failed to save.";
+			toast.error(e instanceof Error ? e.message : "Failed to save.");
 		} finally {
 			saving = false;
 		}
@@ -79,8 +79,9 @@
 		try {
 			if (k === "strategy") await strategyStore.deleteStrategy(supabase, item.id);
 			else await mistakeStore.deleteMistake(supabase, item.id);
+			toast.success(`"${item.name}" deleted.`);
 		} catch (e) {
-			alert(e instanceof Error ? e.message : "Failed to delete.");
+			toast.error(e instanceof Error ? e.message : "Failed to delete.");
 		}
 	}
 
@@ -163,7 +164,7 @@
 	</Breadcrumb.Root>
 </HeaderNavbar>
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
-	<div class="container mx-auto max-w-5xl space-y-6 p-4 md:p-6">
+	<div class="container mx-auto max-w-8xl space-y-6 p-4 md:p-6">
 		<div>
 			<h1 class="text-2xl font-bold tracking-tight">Strategies & Mistakes</h1>
 			<p class="text-sm text-muted-foreground">
@@ -240,13 +241,7 @@
 					</Sheet.Description>
 				</Sheet.Header>
 
-				{#if error}
-					<div class="mx-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-						{error}
-					</div>
-				{/if}
-
-				<div class="flex-1 overflow-y-auto space-y-4 px-4 pb-4">
+<div class="flex-1 overflow-y-auto space-y-4 px-4 pb-4">
 					<div class="space-y-1.5">
 						<div class="text-xs font-medium">Name</div>
 						<Input

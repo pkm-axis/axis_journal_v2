@@ -6,9 +6,10 @@
 	import { Skeleton } from "$lib/components/ui/skeleton";
 	import { supabase } from "$lib/supabase/client";
 	import { tradeStore } from "$lib/stores/trades.svelte";
-	import { accountStore } from "$lib/stores/accounts.svelte";
+	import { accountStore, type Account } from "$lib/stores/accounts.svelte";
 	import { strategyStore } from "$lib/stores/strategies.svelte";
 	import { mistakeStore } from "$lib/stores/mistakes.svelte";
+	import { payoutStore } from "$lib/stores/payouts.svelte";
 
 	let session = $state<{ user: { id: string } } | null>(null);
 	const loading = $derived(tradeStore.loading);
@@ -121,6 +122,37 @@
 		return Math.max(1, ...buckets.map((b) => Math.abs(b.pnl)));
 	}
 
+	type PropFirmGroup = {
+		name: string;
+		accounts: Account[];
+		totalChallengeCost: number;
+		totalPayoutsReceived: number;
+		net: number;
+	};
+
+	const propFirmGroups = $derived.by(() => {
+		const propAccounts = accountStore.accounts.filter(
+			(a) => a.account_type === "prop firm" && a.prop_firm_name
+		);
+		const map = new Map<string, PropFirmGroup>();
+		for (const a of propAccounts) {
+			const key = a.prop_firm_name!;
+			if (!map.has(key)) map.set(key, { name: key, accounts: [], totalChallengeCost: 0, totalPayoutsReceived: 0, net: 0 });
+			const g = map.get(key)!;
+			g.accounts.push(a);
+			g.totalChallengeCost += a.challenge_cost ?? 0;
+		}
+		for (const p of payoutStore.allPayouts) {
+			if (p.status !== "received") continue;
+			const acct = propAccounts.find((a) => a.id === p.account_id);
+			if (!acct?.prop_firm_name) continue;
+			const g = map.get(acct.prop_firm_name);
+			if (g) g.totalPayoutsReceived += p.amount;
+		}
+		for (const g of map.values()) g.net = g.totalPayoutsReceived - g.totalChallengeCost;
+		return Array.from(map.values()).sort((a, b) => b.totalPayoutsReceived - a.totalPayoutsReceived);
+	});
+
 	onMount(async () => {
 		const { data: { session: s } } = await supabase.auth.getSession();
 		session = s;
@@ -130,6 +162,7 @@
 		if (!session?.user?.id) return;
 		void accountStore.activeAccountId;
 		void tradeStore.getTradesByAccount(supabase);
+		void payoutStore.getAllPayouts(supabase);
 	});
 </script>
 
@@ -224,13 +257,67 @@
 </HeaderNavbar>
 
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
-	<div class="container mx-auto max-w-6xl space-y-6 p-4 md:p-6">
+	<div class="container mx-auto max-w-8xl space-y-6 p-4 md:p-6">
 		<div>
 			<h1 class="text-2xl font-bold tracking-tight">Analytics</h1>
 			<p class="text-sm text-muted-foreground">
 				How your closed trades break down across different dimensions.
 			</p>
 		</div>
+
+		{#if propFirmGroups.length > 0}
+			<section class="space-y-2">
+				<div>
+					<h2 class="text-lg font-semibold">Prop firm overview</h2>
+					<p class="text-xs text-muted-foreground">Totals grouped by firm across all your accounts.</p>
+				</div>
+				<div class="rounded-md border bg-background overflow-x-auto">
+					<table class="w-full text-sm">
+						<thead class="bg-muted/30 text-muted-foreground">
+							<tr class="[&>th]:px-4 [&>th]:py-2 [&>th]:font-medium [&>th]:text-left [&>th]:whitespace-nowrap">
+								<th>Firm</th>
+								<th>Accounts</th>
+								<th>Challenge costs</th>
+								<th>Payouts received</th>
+								<th>Net</th>
+							</tr>
+						</thead>
+						<tbody class="[&>tr:not(:last-child)]:border-b">
+							{#each propFirmGroups as g}
+								<tr class="[&>td]:px-4 [&>td]:py-3 hover:bg-muted/30">
+									<td class="font-medium text-xs">{g.name}</td>
+									<td class="text-xs text-muted-foreground tabular-nums">
+										{g.accounts.length}
+										<span class="ml-1 text-muted-foreground/60">
+											({g.accounts.filter(a => a.prop_firm_type === 'evaluation').length} eval,
+											{g.accounts.filter(a => a.prop_firm_type === 'funded').length} funded)
+										</span>
+									</td>
+									<td class="text-xs tabular-nums text-rose-700 dark:text-rose-400">
+										{g.totalChallengeCost > 0 ? fmtUsd(-g.totalChallengeCost) : "—"}
+									</td>
+									<td class="text-xs tabular-nums">
+										{#if g.totalPayoutsReceived > 0}
+											<span class="text-emerald-700 dark:text-emerald-400">{fmtUsd(g.totalPayoutsReceived)}</span>
+										{:else}
+											<span class="text-muted-foreground">—</span>
+										{/if}
+									</td>
+									<td class={[
+										"text-xs font-medium tabular-nums",
+										g.net > 0 && "text-emerald-700 dark:text-emerald-400",
+										g.net < 0 && "text-rose-700 dark:text-rose-400",
+										g.net === 0 && "text-muted-foreground",
+									]}>
+										{g.totalChallengeCost === 0 && g.totalPayoutsReceived === 0 ? "—" : fmtUsd(g.net)}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			</section>
+		{/if}
 
 		<section class="space-y-2">
 			<div>

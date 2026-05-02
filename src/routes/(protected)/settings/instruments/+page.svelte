@@ -8,6 +8,7 @@
 	import { PencilSimpleIcon, PlusIcon, TrashIcon } from "phosphor-svelte";
 	import { supabase } from "$lib/supabase/client";
 	import { instrumentStore, pointValue, type Instrument } from "$lib/stores/instruments.svelte";
+	import { toast } from "svelte-sonner";
 
 	const MARKET_TYPES = ["futures", "forex", "stocks", "crypto", "options", "other"];
 	const loading = $derived(instrumentStore.loading);
@@ -23,7 +24,6 @@
 	let formBaseCurrency = $state("USD");
 	let formQuoteCurrency = $state("USD");
 	let saving = $state(false);
-	let error = $state<string | null>(null);
 
 	function reset() {
 		formSymbol = "";
@@ -34,7 +34,7 @@
 		formTickValue = "12.5";
 		formBaseCurrency = "USD";
 		formQuoteCurrency = "USD";
-		error = null;
+
 	}
 
 	function openCreate() {
@@ -53,17 +53,16 @@
 		formTickValue = String(i.tick_value ?? 0);
 		formBaseCurrency = i.base_currency ?? "USD";
 		formQuoteCurrency = i.quote_currency ?? "USD";
-		error = null;
+
 		dialogOpen = true;
 	}
 
 	async function submit() {
 		if (!formSymbol.trim()) {
-			error = "Symbol is required.";
+			toast.error("Symbol is required.");
 			return;
 		}
 		saving = true;
-		error = null;
 		try {
 			const payload = {
 				symbol: formSymbol.trim().toUpperCase(),
@@ -77,12 +76,14 @@
 			};
 			if (editingId) {
 				await instrumentStore.updateInstrument(supabase, editingId, payload);
+				toast.success("Instrument updated.");
 			} else {
 				await instrumentStore.createInstrument(supabase, payload);
+				toast.success("Instrument created.");
 			}
 			dialogOpen = false;
 		} catch (e) {
-			error = e instanceof Error ? e.message : "Failed to save.";
+			toast.error(e instanceof Error ? e.message : "Failed to save.");
 		} finally {
 			saving = false;
 		}
@@ -93,8 +94,9 @@
 		if (!ok) return;
 		try {
 			await instrumentStore.deleteInstrument(supabase, i.id);
+			toast.success(`${i.symbol} deleted.`);
 		} catch (e) {
-			alert(e instanceof Error ? e.message : "Failed to delete.");
+			toast.error(e instanceof Error ? e.message : "Failed to delete.");
 		}
 	}
 
@@ -260,11 +262,6 @@
 				</div>
 			</div>
 
-			{#if error}
-				<div class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-					{error}
-				</div>
-			{/if}
 		</div>
 
 		<Dialog.Footer>
