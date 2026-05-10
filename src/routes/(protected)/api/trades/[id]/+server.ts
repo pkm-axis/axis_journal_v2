@@ -16,7 +16,11 @@ const updatableKeys = [
 	"opened_at",
 	"closed_at",
 	"notes",
-	"screenshot_url"
+	"screenshot_url",
+	"emotional_states",
+	"confidence",
+	"mental_state",
+	"followed_plan"
 ] as const;
 
 type UpdatableKey = (typeof updatableKeys)[number];

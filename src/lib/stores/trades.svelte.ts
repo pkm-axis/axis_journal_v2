@@ -22,6 +22,10 @@ export type TradeCreatePayload = {
     opened_at: string;
     closed_at?: string | null;
     notes?: string;
+    emotional_states?: string[];
+    confidence?: number | null;
+    mental_state?: string | null;
+    followed_plan?: "yes" | "no" | "partial" | null;
     strategy_ids?: string[];
     mistake_ids?: string[];
 };
@@ -47,6 +51,10 @@ export interface Trade {
     closed_at: string | null;
     notes: string | null;
     screenshot_url: string | null;
+    emotional_states: string[] | null;
+    confidence: number | null;
+    mental_state: string | null;
+    followed_plan: "yes" | "no" | "partial" | null;
     created_at: string;
     updated_at: string;
     strategy_ids?: string[];
@@ -70,6 +78,10 @@ export type TradeUpdatePayload = {
     closed_at?: string | null;
     notes?: string | null;
     screenshot_url?: string | null;
+    emotional_states?: string[];
+    confidence?: number | null;
+    mental_state?: string | null;
+    followed_plan?: "yes" | "no" | "partial" | null;
     strategy_ids?: string[];
     mistake_ids?: string[];
 };

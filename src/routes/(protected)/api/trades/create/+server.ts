@@ -25,6 +25,10 @@ export async function POST({ request, locals: { supabase, safeGetSession } }) {
         opened_at,
         closed_at,
         notes,
+        emotional_states,
+        confidence,
+        mental_state,
+        followed_plan,
         strategy_ids,
         mistake_ids
     } = body;
@@ -49,7 +53,11 @@ export async function POST({ request, locals: { supabase, safeGetSession } }) {
                 pnl,
                 opened_at,
                 closed_at,
-                notes
+                notes,
+                emotional_states: Array.isArray(emotional_states) ? emotional_states : [],
+                confidence: confidence ?? null,
+                mental_state: mental_state ?? null,
+                followed_plan: followed_plan ?? null
             }
         ])
         .select()

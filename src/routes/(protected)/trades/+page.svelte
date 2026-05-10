@@ -24,6 +24,8 @@
 	import TradeCard from "$lib/components/trades/trade-card.svelte";
 	import * as Select from "$lib/components/ui/select/index.js";
 	import * as Sheet from "$lib/components/ui/sheet/index.js";
+	import * as Dialog from "$lib/components/ui/dialog/index.js";
+	import { DateTimePicker } from "$lib/components/ui/date-time-picker";
 	import { supabase } from "$lib/supabase/client";
 	import { tradeStore } from "$lib/stores/trades.svelte";
 	import { accountStore } from "$lib/stores/accounts.svelte";
@@ -60,6 +62,11 @@
 		updated_at: string;
 		strategy_ids?: string[];
 		mistake_ids?: string[];
+		emotional_states?: string[] | null;
+		confidence?: number | null;
+		mental_state?: string | null;
+		followed_plan?: "yes" | "no" | "partial" | null;
+		screenshot_url?: string | null;
 	}
 
 	type SideFilter = "all" | "long" | "short";
@@ -110,6 +117,30 @@
 
 	let tradeSheetOpen = $state(false);
 	let editingTradeId = $state<string | null>(null);
+	let tradeStep = $state<1 | 2 | 3>(1);
+
+	const EMOTIONAL_STATES = [
+		"calm",
+		"anxious",
+		"fomo",
+		"revenge",
+		"confident",
+		"fearful",
+		"greedy",
+		"disciplined",
+		"impatient"
+	] as const;
+
+	let formEmotionalStates = $state<string[]>([]);
+	let formConfidence = $state<number | null>(null);
+	let formMentalState = $state("");
+	let formFollowedPlan = $state<"yes" | "no" | "partial" | null>(null);
+
+	function toggleEmotionalState(s: string) {
+		formEmotionalStates = formEmotionalStates.includes(s)
+			? formEmotionalStates.filter((x) => x !== s)
+			: [...formEmotionalStates, s];
+	}
 
 	const isEditingTrade = $derived(editingTradeId != null);
 	let formSymbol = $derived("")
@@ -165,6 +196,11 @@
 		formScreenshotFile = null;
 		formScreenshotPreview = null;
 		formExistingScreenshotUrl = null;
+		formEmotionalStates = [];
+		formConfidence = null;
+		formMentalState = "";
+		formFollowedPlan = null;
+		tradeStep = 1;
 	}
 
 	function closeTradeSheet() {
@@ -205,6 +241,17 @@
 		formScreenshotFile = null;
 		formScreenshotPreview = null;
 		formExistingScreenshotUrl = (t as TradeRow & { screenshot_url?: string | null }).screenshot_url ?? null;
+		const tt = t as TradeRow & {
+			emotional_states?: string[] | null;
+			confidence?: number | null;
+			mental_state?: string | null;
+			followed_plan?: "yes" | "no" | "partial" | null;
+		};
+		formEmotionalStates = [...(tt.emotional_states ?? [])];
+		formConfidence = tt.confidence ?? null;
+		formMentalState = tt.mental_state ?? "";
+		formFollowedPlan = tt.followed_plan ?? null;
+		tradeStep = 1;
 		tradeSheetOpen = true;
 	}
 
@@ -537,6 +584,10 @@
 					closed_at: closedAtIso,
 					notes: formNotes.trim() || null,
 					screenshot_url: screenshotUrl,
+					emotional_states: formEmotionalStates,
+					confidence: formConfidence,
+					mental_state: formMentalState.trim() || null,
+					followed_plan: formFollowedPlan,
 					strategy_ids: formStrategyIds,
 					mistake_ids: formStatus === "closed" ? formMistakeIds : []
 				});
@@ -557,6 +608,10 @@
 					opened_at: openedAtIso,
 					closed_at: closedAtIso,
 					notes: formNotes.trim() || undefined,
+					emotional_states: formEmotionalStates,
+					confidence: formConfidence,
+					mental_state: formMentalState.trim() || null,
+					followed_plan: formFollowedPlan,
 					strategy_ids: formStrategyIds,
 					mistake_ids: formStatus === "closed" ? formMistakeIds : []
 				});
@@ -1156,23 +1211,55 @@
 			{/if}
 		</div>
 
-		<Sheet.Root
+		<Dialog.Root
 			bind:open={tradeSheetOpen}
 			onOpenChange={(open: boolean) => {
 				if (!open) closeTradeSheet();
 			}}
 		>
-			<Sheet.Content side="right" class="w-[min(100vw,600px)] sm:max-w-[600px]">
-				<Sheet.Header>
-					<Sheet.Title>{isEditingTrade ? "Edit trade" : "New trade"}</Sheet.Title>
-					<Sheet.Description>
+			<Dialog.Content class="w-[min(100vw,640px)] sm:max-w-[640px] max-h-[90vh] flex flex-col p-0 gap-0">
+				<Dialog.Header class="px-5 pt-5 pb-3 border-b">
+					<Dialog.Title>{isEditingTrade ? "Edit trade" : "New trade"}</Dialog.Title>
+					<Dialog.Description>
 						{isEditingTrade
 							? "Update details, for example when you close an open position."
 							: "Place trade details"}
-					</Sheet.Description>
-				</Sheet.Header>
+					</Dialog.Description>
 
-<div class="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
+					<!-- Stepper -->
+					<div class="mt-4 flex items-center gap-2">
+						{#each [
+							{ n: 1, label: "Trade" },
+							{ n: 2, label: "Psychology" },
+							{ n: 3, label: "Tags & notes" }
+						] as s}
+							{@const active = tradeStep === s.n}
+							{@const done = tradeStep > s.n}
+							<div class="flex items-center gap-2">
+								<button
+									type="button"
+									class={[
+										"flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-medium tabular-nums transition-colors cursor-pointer",
+										active && "border-primary bg-primary text-primary-foreground",
+										done && "border-emerald-700/50 bg-emerald-700/10 text-emerald-700 dark:text-emerald-400",
+										!active && !done && "text-muted-foreground"
+									]}
+									onclick={() => (tradeStep = s.n as 1 | 2 | 3)}
+									aria-label={`Go to step ${s.n}`}
+								>
+									{s.n}
+								</button>
+								<span class={["text-xs", active ? "font-medium" : "text-muted-foreground"]}>{s.label}</span>
+							</div>
+							{#if s.n < 3}
+								<div class="h-px flex-1 bg-border"></div>
+							{/if}
+						{/each}
+					</div>
+				</Dialog.Header>
+
+<div class="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+				{#if tradeStep === 1}
 					<div class="space-y-1.5">
 						<div class="text-xs font-medium">Symbol</div>
 						<!-- <Input bind:value={formSymbol} placeholder="e.g. ES, BTCUSDT" class="rounded-md" /> -->
@@ -1343,7 +1430,10 @@
 
 					<div class="space-y-1.5">
 						<div class="text-xs font-medium">Opened at</div>
-						<Input type="datetime-local" bind:value={formOpenedAt} class="rounded-md" />
+						<DateTimePicker
+							value={formOpenedAt}
+							onValueChange={(v) => (formOpenedAt = v ?? toDatetimeLocalValue(new Date()))}
+						/>
 					</div>
 
 					{#if formStatus === "closed"}
@@ -1354,11 +1444,10 @@
 							</div>
 							<div class="space-y-1.5">
 								<div class="text-xs font-medium">Closed at</div>
-								<Input
-									type="datetime-local"
-									value={formClosedAt ?? ""}
-									oninput={(e) => (formClosedAt = (e.currentTarget as HTMLInputElement).value || null)}
-									class="rounded-md"
+								<DateTimePicker
+									value={formClosedAt}
+									onValueChange={(v) => (formClosedAt = v)}
+									clearable
 								/>
 							</div>
 						</div>
@@ -1373,7 +1462,100 @@
 								need a different number (fees, scaling, partials).
 							</p>
 						</div>
+					{/if}
+				{/if}
 
+				{#if tradeStep === 2}
+					<div class="space-y-1.5">
+						<div class="text-xs font-medium">Emotional state</div>
+						<p class="text-[11px] text-muted-foreground leading-snug">Pick all that applied at the moment of placing this trade.</p>
+						<div class="flex flex-wrap gap-1.5 pt-1">
+							{#each EMOTIONAL_STATES as e}
+								{@const on = formEmotionalStates.includes(e)}
+								<button
+									type="button"
+									onclick={() => toggleEmotionalState(e)}
+									class={[
+										"rounded-md border px-2.5 py-1 text-xs capitalize cursor-pointer transition-colors",
+										on
+											? "border-primary bg-primary/10 text-primary"
+											: "border-input bg-background text-muted-foreground hover:bg-muted/50"
+									]}
+								>
+									{e}
+								</button>
+							{/each}
+						</div>
+					</div>
+
+					<div class="space-y-1.5">
+						<div class="text-xs font-medium">Confidence</div>
+						<div class="flex items-center gap-1.5">
+							{#each [1, 2, 3, 4, 5] as n}
+								{@const on = formConfidence === n}
+								<button
+									type="button"
+									onclick={() => (formConfidence = on ? null : n)}
+									class={[
+										"flex h-9 w-9 items-center justify-center rounded-md border text-sm font-medium tabular-nums cursor-pointer transition-colors",
+										on
+											? "border-primary bg-primary text-primary-foreground"
+											: "border-input bg-background text-muted-foreground hover:bg-muted/50"
+									]}
+								>
+									{n}
+								</button>
+							{/each}
+							<span class="ml-2 text-[11px] text-muted-foreground">1 = uncertain · 5 = high conviction</span>
+						</div>
+					</div>
+
+					<div class="space-y-1.5">
+						<div class="text-xs font-medium">Followed your plan?</div>
+						<div class="flex gap-1.5">
+							{#each [{ v: "yes", l: "Yes" }, { v: "partial", l: "Partial" }, { v: "no", l: "No" }] as opt}
+								{@const on = formFollowedPlan === opt.v}
+								<button
+									type="button"
+									onclick={() => (formFollowedPlan = on ? null : (opt.v as "yes" | "no" | "partial"))}
+									class={[
+										"flex-1 rounded-md border px-3 py-2 text-xs font-medium cursor-pointer transition-colors",
+										on
+											? "border-primary bg-primary/10 text-primary"
+											: "border-input bg-background text-muted-foreground hover:bg-muted/50"
+									]}
+								>
+									{opt.l}
+								</button>
+							{/each}
+						</div>
+					</div>
+
+					<div class="space-y-1.5">
+						<div class="text-xs font-medium">Mental / physical state</div>
+						<textarea
+							bind:value={formMentalState}
+							rows="3"
+							class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[72px] w-full rounded-md border px-3 py-2 text-xs shadow-xs outline-none focus-visible:ring-1 disabled:cursor-not-allowed disabled:opacity-50"
+							placeholder="e.g. tired, well-rested, distracted, focused…"
+						></textarea>
+					</div>
+				{/if}
+
+				{#if tradeStep === 3}
+					<div class="space-y-1.5">
+						<div class="text-xs font-medium">Strategies</div>
+						<MultiSelect
+							bind:selected={formStrategyIds}
+							options={strategyStore.strategies.map((s) => ({ value: s.id, label: s.name }))}
+							placeholder={strategyStore.strategies.length === 0
+								? "Create one in Strategies & Mistakes"
+								: "Tag strategies used"}
+							emptyText="No strategies yet — add some in Strategies & Mistakes."
+						/>
+					</div>
+
+					{#if formStatus === "closed"}
 						<div class="space-y-1.5">
 							<div class="text-xs font-medium">Mistakes</div>
 							<MultiSelect
@@ -1389,18 +1571,6 @@
 							</p>
 						</div>
 					{/if}
-
-					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Strategies</div>
-						<MultiSelect
-							bind:selected={formStrategyIds}
-							options={strategyStore.strategies.map((s) => ({ value: s.id, label: s.name }))}
-							placeholder={strategyStore.strategies.length === 0
-								? "Create one in Strategies & Mistakes"
-								: "Tag strategies used"}
-							emptyText="No strategies yet — add some in Strategies & Mistakes."
-						/>
-					</div>
 
 					<div class="space-y-1.5">
 						<div class="text-xs font-medium">Notes</div>
@@ -1460,10 +1630,11 @@
 							</label>
 						{/if}
 					</div>
+				{/if}
 				</div>
 
-				<Sheet.Footer class="border-t">
-					<div class="flex items-center justify-between gap-2">
+				<Dialog.Footer class="border-t px-5 py-3">
+					<div class="flex w-full items-center justify-between gap-2">
 						{#if isEditingTrade}
 							<Button
 								variant="ghost"
@@ -1478,21 +1649,37 @@
 							<div></div>
 						{/if}
 						<div class="flex gap-2">
-							<Button variant="outline" class="rounded-md cursor-pointer" onclick={closeTradeSheet}>
-								Cancel
-							</Button>
-							<Button
-								class="rounded-md bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground cursor-pointer"
-								disabled={!formSymbol.trim() || saving || deleting || !session || !accountStore.activeAccountId}
-								onclick={submitTradeForm}
-							>
-								{saving ? "Saving…" : isEditingTrade ? "Save changes" : "Create trade"}
-							</Button>
+							{#if tradeStep > 1}
+								<Button variant="outline" class="rounded-md cursor-pointer" onclick={() => (tradeStep = (tradeStep - 1) as 1 | 2 | 3)}>
+									Back
+								</Button>
+							{:else}
+								<Button variant="outline" class="rounded-md cursor-pointer" onclick={closeTradeSheet}>
+									Cancel
+								</Button>
+							{/if}
+							{#if tradeStep < 3}
+								<Button
+									class="rounded-md bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground cursor-pointer"
+									disabled={tradeStep === 1 && !formSymbol.trim()}
+									onclick={() => (tradeStep = (tradeStep + 1) as 1 | 2 | 3)}
+								>
+									Next
+								</Button>
+							{:else}
+								<Button
+									class="rounded-md bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground cursor-pointer"
+									disabled={!formSymbol.trim() || saving || deleting || !session || !accountStore.activeAccountId}
+									onclick={submitTradeForm}
+								>
+									{saving ? "Saving…" : isEditingTrade ? "Save changes" : "Create trade"}
+								</Button>
+							{/if}
 						</div>
 					</div>
-				</Sheet.Footer>
-			</Sheet.Content>
-		</Sheet.Root>
+				</Dialog.Footer>
+			</Dialog.Content>
+		</Dialog.Root>
 
 		{#if sharingTrade}
 			{@const t = sharingTrade}
@@ -1544,7 +1731,10 @@
 			</div>
 			<div class="space-y-1.5">
 				<div class="text-xs font-medium">Payout date</div>
-				<Input bind:value={payoutDate} type="datetime-local" class="rounded-md" />
+				<DateTimePicker
+					value={payoutDate}
+					onValueChange={(v) => (payoutDate = v ?? toDatetimeLocalValue(new Date()))}
+				/>
 			</div>
 			<div class="space-y-1.5">
 				<div class="text-xs font-medium">Notes</div>
