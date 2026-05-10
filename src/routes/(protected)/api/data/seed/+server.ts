@@ -10,6 +10,7 @@ export const POST: RequestHandler = async ({ locals: { supabase, safeGetSession 
 	try {
 		// ── 0. Wipe existing data for this user ───────────────────────────────────
 		await supabase.schema("trading").from("payouts").delete().eq("user_id", uid);
+		// trade_psychology rows cascade-delete with trades
 		await supabase.schema("trading").from("trades").delete().eq("user_id", uid);
 		await supabase.schema("trading").from("accounts").delete().eq("user_id", uid);
 		await supabase.schema("trading").from("strategies").delete().eq("user_id", uid);
@@ -166,6 +167,10 @@ export const POST: RequestHandler = async ({ locals: { supabase, safeGetSession 
 			qty: number; pnl: number | null;
 			daysAgo: number; status: "open" | "closed";
 			notes?: string; strategy?: string; mistake?: string;
+			emotional_states?: string[];
+			confidence?: number;
+			mental_state?: string;
+			followed_plan?: "yes" | "no" | "partial";
 		};
 
 		const now = Date.now();
@@ -174,8 +179,8 @@ export const POST: RequestHandler = async ({ locals: { supabase, safeGetSession 
 
 		const seeds: TradeSeed[] = [
 			// NQ longs – wins
-			{ symbol: "NQ", instrId: nqId, side: "long",  entry: 19_820, exit: 19_980, stop: 19_750, target: 19_980, qty: 1, pnl:  3200, daysAgo: 88, status: "closed", strategy: "Trend Following" },
-			{ symbol: "NQ", instrId: nqId, side: "long",  entry: 19_640, exit: 19_760, stop: 19_570, target: 19_760, qty: 1, pnl:  2400, daysAgo: 84, status: "closed", strategy: "Breakout" },
+			{ symbol: "NQ", instrId: nqId, side: "long",  entry: 19_820, exit: 19_980, stop: 19_750, target: 19_980, qty: 1, pnl:  3200, daysAgo: 88, status: "closed", strategy: "Trend Following", emotional_states: ["calm", "confident"], confidence: 4, followed_plan: "yes", mental_state: "Well-rested, focused on the open." },
+			{ symbol: "NQ", instrId: nqId, side: "long",  entry: 19_640, exit: 19_760, stop: 19_570, target: 19_760, qty: 1, pnl:  2400, daysAgo: 84, status: "closed", strategy: "Breakout", emotional_states: ["disciplined"], confidence: 4, followed_plan: "yes" },
 			{ symbol: "NQ", instrId: nqId, side: "long",  entry: 19_510, exit: 19_660, stop: 19_440, target: 19_660, qty: 2, pnl:  6000, daysAgo: 79, status: "closed", strategy: "Opening Range Breakout" },
 			{ symbol: "NQ", instrId: nqId, side: "long",  entry: 20_050, exit: 20_200, stop: 19_970, target: 20_200, qty: 1, pnl:  3000, daysAgo: 73, status: "closed", strategy: "Trend Following" },
 			{ symbol: "NQ", instrId: nqId, side: "long",  entry: 20_320, exit: 20_530, stop: 20_240, target: 20_530, qty: 1, pnl:  4200, daysAgo: 66, status: "closed", strategy: "Breakout" },
@@ -189,10 +194,10 @@ export const POST: RequestHandler = async ({ locals: { supabase, safeGetSession 
 			{ symbol: "NQ", instrId: nqId, side: "short", entry: 21_240, exit: 21_060, stop: 21_320, target: 21_060, qty: 2, pnl:  7200, daysAgo: 38, status: "closed", strategy: "Breakout" },
 
 			// NQ losses
-			{ symbol: "NQ", instrId: nqId, side: "long",  entry: 19_720, exit: 19_650, stop: 19_650, target: 19_880, qty: 1, pnl: -1400, daysAgo: 82, status: "closed", notes: "Failed breakout", mistake: "Sized too large" },
-			{ symbol: "NQ", instrId: nqId, side: "long",  entry: 20_410, exit: 20_340, stop: 20_340, target: 20_580, qty: 2, pnl: -2800, daysAgo: 62, status: "closed", mistake: "Ignored invalidation" },
-			{ symbol: "NQ", instrId: nqId, side: "short", entry: 20_200, exit: 20_270, stop: 20_270, target: 20_040, qty: 1, pnl: -1400, daysAgo: 55, status: "closed", mistake: "Moved stop early" },
-			{ symbol: "NQ", instrId: nqId, side: "long",  entry: 21_380, exit: 21_310, stop: 21_310, target: 21_560, qty: 1, pnl: -1400, daysAgo: 27, status: "closed", mistake: "Revenge trade" },
+			{ symbol: "NQ", instrId: nqId, side: "long",  entry: 19_720, exit: 19_650, stop: 19_650, target: 19_880, qty: 1, pnl: -1400, daysAgo: 82, status: "closed", notes: "Failed breakout", mistake: "Sized too large", emotional_states: ["fomo", "greedy"], confidence: 2, followed_plan: "no", mental_state: "Chasing the move after missing the first leg." },
+			{ symbol: "NQ", instrId: nqId, side: "long",  entry: 20_410, exit: 20_340, stop: 20_340, target: 20_580, qty: 2, pnl: -2800, daysAgo: 62, status: "closed", mistake: "Ignored invalidation", emotional_states: ["anxious", "fearful"], confidence: 2, followed_plan: "no" },
+			{ symbol: "NQ", instrId: nqId, side: "short", entry: 20_200, exit: 20_270, stop: 20_270, target: 20_040, qty: 1, pnl: -1400, daysAgo: 55, status: "closed", mistake: "Moved stop early", emotional_states: ["impatient"], confidence: 3, followed_plan: "partial" },
+			{ symbol: "NQ", instrId: nqId, side: "long",  entry: 21_380, exit: 21_310, stop: 21_310, target: 21_560, qty: 1, pnl: -1400, daysAgo: 27, status: "closed", mistake: "Revenge trade", emotional_states: ["revenge", "anxious"], confidence: 1, followed_plan: "no", mental_state: "Tilted from prior loss." },
 			{ symbol: "NQ", instrId: nqId, side: "short", entry: 21_020, exit: 21_100, stop: 21_100, target: 20_840, qty: 1, pnl: -1600, daysAgo: 20, status: "closed" },
 
 			// ES trades
@@ -208,35 +213,43 @@ export const POST: RequestHandler = async ({ locals: { supabase, safeGetSession 
 			{ symbol: "MNQ", instrId: mnqId, side: "long",  entry: 21_200, exit: 21_360, stop: 21_120, target: 21_360, qty: 10, pnl:  3200, daysAgo: 12, status: "closed", strategy: "Opening Range Breakout" },
 
 			// Open trades
-			{ symbol: "NQ", instrId: nqId, side: "long",  entry: 21_680, exit: null, stop: 21_580, target: 21_880, qty: 1, pnl: null, daysAgo: 1, status: "open", strategy: "Trend Following" },
-			{ symbol: "MNQ", instrId: mnqId, side: "long", entry: 21_720, exit: null, stop: 21_640, target: 21_920, qty: 5, pnl: null, daysAgo: 0, status: "open", strategy: "Breakout" },
+			{ symbol: "NQ", instrId: nqId, side: "long",  entry: 21_680, exit: null, stop: 21_580, target: 21_880, qty: 1, pnl: null, daysAgo: 1, status: "open", strategy: "Trend Following", emotional_states: ["calm", "disciplined"], confidence: 4, followed_plan: "yes" },
+			{ symbol: "MNQ", instrId: mnqId, side: "long", entry: 21_720, exit: null, stop: 21_640, target: 21_920, qty: 5, pnl: null, daysAgo: 0, status: "open", strategy: "Breakout", emotional_states: ["confident"], confidence: 5, followed_plan: "yes" },
 		];
 
-		const makeRows = (list: TradeSeed[], acctId: string) => list.map((s) => ({
-			user_id: uid,
-			account_id: acctId,
-			instrument_id: s.instrId ?? null,
-			symbol: s.symbol,
-			side: s.side,
-			status: s.status,
-			entry_price: s.entry,
-			exit_price: s.exit,
-			stop_loss: s.stop,
-			take_profit: s.target,
-			quantity: s.qty,
-			risk: Math.abs(s.entry - s.stop) * s.qty * (pointValueMap[s.symbol] ?? 1),
-			pnl: s.pnl,
-			opened_at: dAgo(s.daysAgo, 9, 30),
-			closed_at: s.status === "closed" ? dAgo(s.daysAgo, 10, 45) : null,
-			notes: s.notes ?? null,
-		}));
+		const makeRows = (list: TradeSeed[], acctId: string) => list.map((s) => {
+			const risk = Math.abs(s.entry - s.stop) * s.qty * (pointValueMap[s.symbol] ?? 1);
+			const rMultiple = s.status === "closed" && s.pnl != null && risk > 0
+				? Number((s.pnl / risk).toFixed(2))
+				: null;
+			return {
+				user_id: uid,
+				account_id: acctId,
+				instrument_id: s.instrId ?? null,
+				symbol: s.symbol,
+				market: "futures",
+				side: s.side,
+				status: s.status,
+				entry_price: s.entry,
+				exit_price: s.exit,
+				stop_loss: s.stop,
+				take_profit: s.target,
+				quantity: s.qty,
+				risk,
+				r_multiple: rMultiple,
+				pnl: s.pnl,
+				opened_at: dAgo(s.daysAgo, 9, 30),
+				closed_at: s.status === "closed" ? dAgo(s.daysAgo, 10, 45) : null,
+				notes: s.notes ?? null,
+			};
+		});
 
 		// Apex 50K Evaluation — trades that show it legitimately passed
 		// Net ~$3,600 | best day $900 (25%) | max drawdown $350 | no daily loss > $400
 		const evalSeeds: TradeSeed[] = [
-			{ symbol: "NQ",  instrId: nqId,  side: "long",  entry: 19_480, exit: 19_560, stop: 19_410, target: 19_580, qty: 1, pnl:   800, daysAgo: 120, status: "closed", strategy: "Trend Following" },
+			{ symbol: "NQ",  instrId: nqId,  side: "long",  entry: 19_480, exit: 19_560, stop: 19_410, target: 19_580, qty: 1, pnl:   800, daysAgo: 120, status: "closed", strategy: "Trend Following", emotional_states: ["calm", "disciplined"], confidence: 4, followed_plan: "yes" },
 			{ symbol: "NQ",  instrId: nqId,  side: "short", entry: 19_650, exit: 19_560, stop: 19_720, target: 19_560, qty: 1, pnl:   600, daysAgo: 118, status: "closed", strategy: "Mean Reversion" },
-			{ symbol: "NQ",  instrId: nqId,  side: "long",  entry: 19_700, exit: 19_660, stop: 19_660, target: 19_840, qty: 1, pnl:  -400, daysAgo: 118, status: "closed", mistake: "Sized too large" },
+			{ symbol: "NQ",  instrId: nqId,  side: "long",  entry: 19_700, exit: 19_660, stop: 19_660, target: 19_840, qty: 1, pnl:  -400, daysAgo: 118, status: "closed", mistake: "Sized too large", emotional_states: ["fomo"], confidence: 2, followed_plan: "no" },
 			{ symbol: "ES",  instrId: esId,  side: "long",  entry:  5_220, exit:  5_238, stop:  5_202, target:  5_240, qty: 1, pnl:   900, daysAgo: 115, status: "closed", strategy: "Opening Range Breakout" },
 			{ symbol: "NQ",  instrId: nqId,  side: "long",  entry: 19_820, exit: 19_785, stop: 19_785, target: 19_960, qty: 1, pnl:  -350, daysAgo: 112, status: "closed", mistake: "Moved stop early" },
 			{ symbol: "NQ",  instrId: nqId,  side: "long",  entry: 19_740, exit: 19_840, stop: 19_660, target: 19_860, qty: 1, pnl:   800, daysAgo: 109, status: "closed", strategy: "Trend Following" },
@@ -250,7 +263,7 @@ export const POST: RequestHandler = async ({ locals: { supabase, safeGetSession 
 		// Topstep 150K Evaluation — just crossed $9,000, all rules clean, ready to graduate
 		// Net ~$9,300 | best day $2,500 (26.9%) | max drawdown $900 | no daily loss > $900
 		const eval2Seeds: TradeSeed[] = [
-			{ symbol: "ES",  instrId: esId,  side: "long",  entry:  5_300, exit:  5_350, stop:  5_272, target:  5_355, qty: 2, pnl:  2_500, daysAgo: 25, status: "closed", strategy: "Trend Following" },
+			{ symbol: "ES",  instrId: esId,  side: "long",  entry:  5_300, exit:  5_350, stop:  5_272, target:  5_355, qty: 2, pnl:  2_500, daysAgo: 25, status: "closed", strategy: "Trend Following", emotional_states: ["confident", "disciplined"], confidence: 5, followed_plan: "yes", mental_state: "Best setup of the week, full conviction." },
 			{ symbol: "NQ",  instrId: nqId,  side: "long",  entry: 21_100, exit: 21_220, stop: 21_020, target: 21_240, qty: 1, pnl:  1_200, daysAgo: 23, status: "closed", strategy: "Breakout" },
 			{ symbol: "NQ",  instrId: nqId,  side: "short", entry: 21_380, exit: 21_420, stop: 21_420, target: 21_200, qty: 1, pnl:   -800, daysAgo: 23, status: "closed", mistake: "Moved stop early" },
 			{ symbol: "ES",  instrId: esId,  side: "short", entry:  5_420, exit:  5_380, stop:  5_448, target:  5_378, qty: 2, pnl:  2_000, daysAgo: 20, status: "closed", strategy: "Mean Reversion" },
@@ -259,7 +272,7 @@ export const POST: RequestHandler = async ({ locals: { supabase, safeGetSession 
 			{ symbol: "ES",  instrId: esId,  side: "long",  entry:  5_380, exit:  5_400, stop:  5_358, target:  5_406, qty: 2, pnl:  1_000, daysAgo: 12, status: "closed", strategy: "Opening Range Breakout" },
 			{ symbol: "NQ",  instrId: nqId,  side: "short", entry: 21_500, exit: 21_560, stop: 21_560, target: 21_320, qty: 1, pnl:   -600, daysAgo: 12, status: "closed", mistake: "Sized too large" },
 			{ symbol: "MNQ", instrId: mnqId, side: "long",  entry: 21_400, exit: 21_650, stop: 21_300, target: 21_680, qty: 20, pnl: 1_800, daysAgo:  9, status: "closed", strategy: "Trend Following" },
-			{ symbol: "NQ",  instrId: nqId,  side: "long",  entry: 21_560, exit: 21_525, stop: 21_525, target: 21_740, qty: 1, pnl:   -700, daysAgo:  6, status: "closed", mistake: "Revenge trade" },
+			{ symbol: "NQ",  instrId: nqId,  side: "long",  entry: 21_560, exit: 21_525, stop: 21_525, target: 21_740, qty: 1, pnl:   -700, daysAgo:  6, status: "closed", mistake: "Revenge trade", emotional_states: ["revenge", "anxious"], confidence: 1, followed_plan: "no", mental_state: "Forced an entry after a missed setup." },
 			{ symbol: "ES",  instrId: esId,  side: "long",  entry:  5_440, exit:  5_460, stop:  5_418, target:  5_464, qty: 2, pnl:  1_000, daysAgo:  3, status: "closed", strategy: "Opening Range Breakout" },
 			{ symbol: "NQ",  instrId: nqId,  side: "short", entry: 21_620, exit: 21_560, stop: 21_680, target: 21_520, qty: 1, pnl:    600, daysAgo:  1, status: "closed", strategy: "Mean Reversion" },
 		];
@@ -276,9 +289,16 @@ export const POST: RequestHandler = async ({ locals: { supabase, safeGetSession 
 
 		if (tradeErr) throw new Error("Trades: " + tradeErr.message);
 
-		// Link strategies and mistakes
+		// Link strategies, mistakes, and psychology
 		const strategyLinks: { trade_id: string; strategy_id: string }[] = [];
 		const mistakeLinks: { trade_id: string; mistake_id: string }[] = [];
+		const psychRows: {
+			trade_id: string;
+			emotional_states: string[];
+			confidence: number | null;
+			mental_state: string | null;
+			followed_plan: "yes" | "no" | "partial" | null;
+		}[] = [];
 
 		const allSeeds = [...evalSeeds, ...seeds, ...eval2Seeds];
 		allSeeds.forEach((s, i) => {
@@ -290,6 +310,41 @@ export const POST: RequestHandler = async ({ locals: { supabase, safeGetSession 
 			if (s.mistake && mistMap[s.mistake] && s.status === "closed") {
 				mistakeLinks.push({ trade_id: tradeId, mistake_id: mistMap[s.mistake] });
 			}
+			// Auto-fill psychology defaults for every trade based on pnl + mistake.
+			const explicitStates = s.emotional_states && s.emotional_states.length > 0;
+			let defaultStates: string[] = ["calm"];
+			let defaultConfidence = 3;
+			let defaultPlan: "yes" | "no" | "partial" = "yes";
+			if (s.status === "open") {
+				defaultStates = ["calm", "disciplined"];
+				defaultConfidence = 4;
+				defaultPlan = "yes";
+			} else if (s.mistake) {
+				const m = s.mistake;
+				if (m === "Revenge trade")            defaultStates = ["revenge", "anxious"];
+				else if (m === "Sized too large")     defaultStates = ["fomo", "greedy"];
+				else if (m === "Moved stop early")    defaultStates = ["impatient", "anxious"];
+				else if (m === "Ignored invalidation") defaultStates = ["fearful", "anxious"];
+				else                                   defaultStates = ["anxious"];
+				defaultConfidence = 2;
+				defaultPlan = "no";
+			} else if ((s.pnl ?? 0) > 0) {
+				defaultStates = ["confident", "disciplined"];
+				defaultConfidence = 4;
+				defaultPlan = "yes";
+			} else {
+				defaultStates = ["calm"];
+				defaultConfidence = 3;
+				defaultPlan = "partial";
+			}
+
+			psychRows.push({
+				trade_id: tradeId,
+				emotional_states: explicitStates ? s.emotional_states! : defaultStates,
+				confidence: s.confidence ?? defaultConfidence,
+				mental_state: s.mental_state ?? null,
+				followed_plan: s.followed_plan ?? defaultPlan,
+			});
 		});
 
 		if (strategyLinks.length > 0) {
@@ -299,6 +354,10 @@ export const POST: RequestHandler = async ({ locals: { supabase, safeGetSession 
 		if (mistakeLinks.length > 0) {
 			const { error: mlErr } = await supabase.schema("trading").from("trade_mistakes").insert(mistakeLinks);
 			if (mlErr) console.error("Mistake links:", mlErr.message);
+		}
+		if (psychRows.length > 0) {
+			const { error: psychErr } = await supabase.schema("trading").from("trade_psychology").insert(psychRows);
+			if (psychErr) console.error("Psychology rows:", psychErr.message);
 		}
 
 		// Add a sample payout on the funded account
@@ -312,7 +371,7 @@ export const POST: RequestHandler = async ({ locals: { supabase, safeGetSession 
 
 		return json({
 			success: true,
-			message: `Seeded: 3 instruments, 4 strategies, 4 mistakes, 4 accounts, ${allSeeds.length} trades, 1 payout.`,
+			message: `Seeded: 3 instruments, 4 strategies, 4 mistakes, 4 accounts, ${allSeeds.length} trades, ${psychRows.length} psychology entries, 1 payout.`,
 		});
 	} catch (e) {
 		console.error("Seed error:", e);

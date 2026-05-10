@@ -53,11 +53,7 @@ export async function POST({ request, locals: { supabase, safeGetSession } }) {
                 pnl,
                 opened_at,
                 closed_at,
-                notes,
-                emotional_states: Array.isArray(emotional_states) ? emotional_states : [],
-                confidence: confidence ?? null,
-                mental_state: mental_state ?? null,
-                followed_plan: followed_plan ?? null
+                notes
             }
         ])
         .select()
@@ -69,6 +65,25 @@ export async function POST({ request, locals: { supabase, safeGetSession } }) {
             success: false,
             message: error.message
         }, { status: 400 })
+    }
+
+    const hasPsychology =
+        (Array.isArray(emotional_states) && emotional_states.length > 0) ||
+        confidence != null ||
+        (typeof mental_state === "string" && mental_state.length > 0) ||
+        (followed_plan != null && followed_plan !== "");
+    if (hasPsychology) {
+        const { error: psychErr } = await supabase
+            .schema("trading")
+            .from("trade_psychology")
+            .insert({
+                trade_id: data.id,
+                emotional_states: Array.isArray(emotional_states) ? emotional_states : [],
+                confidence: confidence ?? null,
+                mental_state: mental_state ?? null,
+                followed_plan: followed_plan ?? null
+            });
+        if (psychErr) console.log("Psychology insert error:", psychErr);
     }
 
     if (Array.isArray(strategy_ids) && strategy_ids.length > 0) {

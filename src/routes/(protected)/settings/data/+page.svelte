@@ -4,6 +4,9 @@
 	import { supabase } from "$lib/supabase/client";
 	import { tradeStore } from "$lib/stores/trades.svelte";
 	import { accountStore } from "$lib/stores/accounts.svelte";
+	import { instrumentStore } from "$lib/stores/instruments.svelte";
+	import { strategyStore } from "$lib/stores/strategies.svelte";
+	import { mistakeStore } from "$lib/stores/mistakes.svelte";
 	import { getAuthToken } from "$lib/utils/auth-token";
 	import { toast } from "svelte-sonner";
 
@@ -22,7 +25,12 @@
 			});
 			const result = await res.json();
 			if (!result.success) throw new Error(result.message ?? "Seed failed.");
-			await accountStore.getAllAccounts(supabase);
+			await Promise.all([
+				accountStore.getAllAccounts(supabase),
+				instrumentStore.getInstruments(supabase),
+				strategyStore.getStrategies(supabase),
+				mistakeStore.getMistakes(supabase),
+			]);
 			await tradeStore.getTradesByAccount(supabase);
 			toast.success(result.message);
 		} catch (e) {

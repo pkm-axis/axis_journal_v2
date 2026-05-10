@@ -16,12 +16,10 @@ const updatableKeys = [
 	"opened_at",
 	"closed_at",
 	"notes",
-	"screenshot_url",
-	"emotional_states",
-	"confidence",
-	"mental_state",
-	"followed_plan"
+	"screenshot_url"
 ] as const;
+
+const psychKeys = ["emotional_states", "confidence", "mental_state", "followed_plan"] as const;
 
 type UpdatableKey = (typeof updatableKeys)[number];
 
@@ -66,6 +64,18 @@ export const PATCH: RequestHandler = async ({ params, request, locals: { supabas
 
 	if (!data) {
 		return json({ success: false, message: "Trade not found" }, { status: 404 });
+	}
+
+	const psychPatch: Record<string, unknown> = {};
+	for (const k of psychKeys) {
+		if (k in body) psychPatch[k] = body[k];
+	}
+	if (Object.keys(psychPatch).length > 0) {
+		const { error: psychErr } = await supabase
+			.schema("trading")
+			.from("trade_psychology")
+			.upsert({ trade_id: id, ...psychPatch, updated_at: new Date().toISOString() });
+		if (psychErr) console.log("Psychology upsert error:", psychErr);
 	}
 
 	if (Array.isArray(body.strategy_ids)) {
