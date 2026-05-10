@@ -19,7 +19,7 @@
 	);
 </script>
 
-<HeaderNavbar links={true}>
+<HeaderNavbar links={true} {helpContent}>
 	<Breadcrumb.Root>
 		<Breadcrumb.List>
 			<Breadcrumb.Item>Settings</Breadcrumb.Item>
@@ -28,6 +28,19 @@
 		</Breadcrumb.List>
 	</Breadcrumb.Root>
 </HeaderNavbar>
+
+{#snippet helpContent()}
+	<div class="space-y-3 text-sm">
+		<p class="text-muted-foreground">Settings is where you configure your journal and manage your account.</p>
+		<ul class="list-disc list-inside space-y-1 text-muted-foreground">
+			<li><strong>Profile</strong> — update your display name and email.</li>
+			<li><strong>Accounts</strong> — add, rename, or archive trading accounts.</li>
+			<li><strong>Instruments</strong> — manage the instruments available when logging trades.</li>
+			<li><strong>Appearance</strong> — choose your theme and display preferences.</li>
+			<li><strong>Data</strong> — import or export your trade history.</li>
+		</ul>
+	</div>
+{/snippet}
 
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
 	<div class="container mx-auto max-w-5xl p-4 md:p-6">

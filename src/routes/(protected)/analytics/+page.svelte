@@ -248,13 +248,24 @@
 	</div>
 {/snippet}
 
-<HeaderNavbar links={true}>
+<HeaderNavbar links={true} {helpContent}>
 	<Breadcrumb.Root>
 		<Breadcrumb.List>
 			<Breadcrumb.Page>Analytics</Breadcrumb.Page>
 		</Breadcrumb.List>
 	</Breadcrumb.Root>
 </HeaderNavbar>
+
+{#snippet helpContent()}
+	<div class="space-y-3 text-sm">
+		<p class="text-muted-foreground">Analytics breaks down your trading performance across multiple dimensions.</p>
+		<ul class="list-disc list-inside space-y-1 text-muted-foreground">
+			<li>Charts update automatically based on the trades logged for the selected account.</li>
+			<li>Breakdowns include P&L by instrument, trade side, and day of the week.</li>
+			<li>See additional breakdowns under <strong>Risk & Streaks</strong> and <strong>Cross-account</strong> in the sidebar.</li>
+		</ul>
+	</div>
+{/snippet}
 
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
 	<div class="container mx-auto max-w-8xl space-y-6 p-4 md:p-6">

@@ -270,13 +270,25 @@
 	</div>
 {/snippet}
 
-<HeaderNavbar links={true}>
+<HeaderNavbar links={true} {helpContent}>
 	<Breadcrumb.Root>
 		<Breadcrumb.List>
 			<Breadcrumb.Page>Strategies & Mistakes</Breadcrumb.Page>
 		</Breadcrumb.List>
 	</Breadcrumb.Root>
 </HeaderNavbar>
+
+{#snippet helpContent()}
+	<div class="space-y-3 text-sm">
+		<p class="text-muted-foreground">The Playbook is where you define your trading strategies and track recurring mistakes.</p>
+		<ul class="list-disc list-inside space-y-1 text-muted-foreground">
+			<li>Create strategies to tag trades and measure their individual performance.</li>
+			<li>Log mistakes to identify patterns in your trading behaviour over time.</li>
+			<li>Each strategy and mistake shows a trade count and recent trade preview.</li>
+			<li>Edit or delete entries using the menu on each card.</li>
+		</ul>
+	</div>
+{/snippet}
 
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
 	<div class="container mx-auto max-w-8xl space-y-6 p-4 md:p-6">

@@ -110,7 +110,7 @@
 	});
 </script>
 
-<HeaderNavbar links={true}>
+<HeaderNavbar links={true} {helpContent}>
 	<Breadcrumb.Root>
 		<Breadcrumb.List>
 			<Breadcrumb.Item>Tools</Breadcrumb.Item>
@@ -119,6 +119,17 @@
 		</Breadcrumb.List>
 	</Breadcrumb.Root>
 </HeaderNavbar>
+
+{#snippet helpContent()}
+	<div class="space-y-3 text-sm">
+		<p class="text-muted-foreground">Expectancy calculates the average amount you can expect to win or lose per trade based on your historical data.</p>
+		<ul class="list-disc list-inside space-y-1 text-muted-foreground">
+			<li>A positive expectancy means your strategy is profitable over the long run.</li>
+			<li>Your actual stats are pre-filled from your logged trades.</li>
+			<li>Edit the win rate, average win, average loss, and trades per month fields to run what-if scenarios.</li>
+		</ul>
+	</div>
+{/snippet}
 
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
 	<div class="container mx-auto max-w-5xl space-y-6 p-4 md:p-6">

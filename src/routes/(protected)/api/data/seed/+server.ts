@@ -14,33 +14,37 @@ export const POST: RequestHandler = async ({ locals: { supabase, safeGetSession 
 		await supabase.schema("trading").from("accounts").delete().eq("user_id", uid);
 		await supabase.schema("trading").from("strategies").delete().eq("user_id", uid);
 		await supabase.schema("trading").from("mistakes").delete().eq("user_id", uid);
+		await supabase.schema("trading").from("instruments").delete().eq("user_id", uid);
 
 		// ── 1. Instruments (upsert so re-seeding is safe) ────────────────────────
+		// contract_size = 1: tick_value already captures the per-contract dollar value per tick.
+		// $/point is derived as tick_value / tick_size (NQ=$20, ES=$50, MNQ=$2).
 		const { data: instruments, error: instrErr } = await supabase
 			.schema("trading")
 			.from("instruments")
-			.upsert([
+			.insert([
 				{
-					symbol: "NQ", exchange: "CME",
+					user_id: uid, symbol: "NQ", exchange: "CME",
 					market_type: "futures", base_currency: "USD", quote_currency: "USD",
-					contract_size: 20, tick_size: 0.25, tick_value: 5, is_active: true,
+					contract_size: 1, tick_size: 0.25, tick_value: 5, is_active: true,
 				},
 				{
-					symbol: "ES", exchange: "CME",
+					user_id: uid, symbol: "ES", exchange: "CME",
 					market_type: "futures", base_currency: "USD", quote_currency: "USD",
-					contract_size: 50, tick_size: 0.25, tick_value: 12.5, is_active: true,
+					contract_size: 1, tick_size: 0.25, tick_value: 12.5, is_active: true,
 				},
 				{
-					symbol: "MNQ", exchange: "CME",
+					user_id: uid, symbol: "MNQ", exchange: "CME",
 					market_type: "futures", base_currency: "USD", quote_currency: "USD",
-					contract_size: 2, tick_size: 0.25, tick_value: 0.5, is_active: true,
+					contract_size: 1, tick_size: 0.25, tick_value: 0.5, is_active: true,
 				},
-			], { onConflict: "symbol,exchange,market_type,expiry_date", ignoreDuplicates: false })
+			])
 			.select("id, symbol");
 
 		if (instrErr) throw new Error("Instruments: " + instrErr.message);
 
 		const instrMap: Record<string, string> = {};
+		const pointValueMap: Record<string, number> = { NQ: 5 / 0.25, ES: 12.5 / 0.25, MNQ: 0.5 / 0.25 };
 		for (const i of instruments ?? []) instrMap[i.symbol] = i.id;
 
 		// ── 2. Strategies ─────────────────────────────────────────────────────────
@@ -220,7 +224,7 @@ export const POST: RequestHandler = async ({ locals: { supabase, safeGetSession 
 			stop_loss: s.stop,
 			take_profit: s.target,
 			quantity: s.qty,
-			risk: Math.abs(s.entry - s.stop) * s.qty * (s.symbol === "ES" ? 50 : s.symbol === "NQ" ? 20 : 2),
+			risk: Math.abs(s.entry - s.stop) * s.qty * (pointValueMap[s.symbol] ?? 1),
 			pnl: s.pnl,
 			opened_at: dAgo(s.daysAgo, 9, 30),
 			closed_at: s.status === "closed" ? dAgo(s.daysAgo, 10, 45) : null,

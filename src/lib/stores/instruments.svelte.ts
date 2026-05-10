@@ -17,10 +17,12 @@ export interface Instrument {
     created_at: string;
 }
 
-/** Account-currency value of a 1.0 price move for one contract. */
+/** Account-currency value of a 1.0 price move for one contract.
+ *  tick_value already represents the per-contract dollar value per tick,
+ *  so point value = tick_value / tick_size. contract_size is not used here. */
 export function pointValue(instr: Instrument | undefined | null): number {
     if (!instr) return 1;
-    return (instr.tick_value / instr.tick_size) * (instr.contract_size ?? 1);
+    return instr.tick_value / instr.tick_size;
 }
 
 /** P&L in account currency for a price move on a given instrument. */

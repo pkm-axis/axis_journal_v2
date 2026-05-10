@@ -146,7 +146,7 @@
 	});
 </script>
 
-<HeaderNavbar links={true}>
+<HeaderNavbar links={true} {helpContent}>
 	<Breadcrumb.Root>
 		<Breadcrumb.List>
 			<Breadcrumb.Item>Analytics</Breadcrumb.Item>
@@ -155,6 +155,17 @@
 		</Breadcrumb.List>
 	</Breadcrumb.Root>
 </HeaderNavbar>
+
+{#snippet helpContent()}
+	<div class="space-y-3 text-sm">
+		<p class="text-muted-foreground">Risk & Streaks helps you understand your drawdown behaviour and win/loss streaks over time.</p>
+		<ul class="list-disc list-inside space-y-1 text-muted-foreground">
+			<li>Charts are built from all closed trades on the selected account.</li>
+			<li>The streak section shows your current and longest consecutive winning and losing runs.</li>
+			<li>Use this page to assess whether your risk management holds up over a large sample of trades.</li>
+		</ul>
+	</div>
+{/snippet}
 
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
 	<div class="container mx-auto max-w-5xl space-y-6 p-4 md:p-6">

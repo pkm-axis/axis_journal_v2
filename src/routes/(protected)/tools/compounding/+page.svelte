@@ -61,7 +61,7 @@
 	}
 </script>
 
-<HeaderNavbar links={true}>
+<HeaderNavbar links={true} {helpContent}>
 	<Breadcrumb.Root>
 		<Breadcrumb.List>
 			<Breadcrumb.Item>Tools</Breadcrumb.Item>
@@ -70,6 +70,16 @@
 		</Breadcrumb.List>
 	</Breadcrumb.Root>
 </HeaderNavbar>
+
+{#snippet helpContent()}
+	<div class="space-y-3 text-sm">
+		<p class="text-muted-foreground">The Compounding calculator projects how your account grows when you reinvest profits.</p>
+		<ul class="list-disc list-inside space-y-1 text-muted-foreground">
+			<li>Enter your starting balance, return per trade (%), trades per period, and number of periods.</li>
+			<li>The chart shows how the account balance grows over each period.</li>
+		</ul>
+	</div>
+{/snippet}
 
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
 	<div class="container mx-auto max-w-5xl space-y-4 p-4 md:p-6">

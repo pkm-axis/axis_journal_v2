@@ -11,6 +11,7 @@ export async function GET({ locals: { supabase, safeGetSession} }) {
         .schema('trading')
         .from('instruments')
         .select('*')
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
     if(error) {

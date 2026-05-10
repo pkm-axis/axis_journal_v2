@@ -103,6 +103,10 @@
 	let searchQuery = $state("");
 	let directionFilter = $state<SideFilter>("all");
 	let statusFilter = $state<StatusFilter>("all");
+	let currentPage = $state(1);
+	const PAGE_SIZE = 10;
+	let debouncedSearch = $state("");
+	let _searchTimer: ReturnType<typeof setTimeout>;
 
 	let tradeSheetOpen = $state(false);
 	let editingTradeId = $state<string | null>(null);
@@ -245,20 +249,18 @@
 		return riskRewardRatio(e, sl, tp, s);
 	}
 
-	const filteredTrades = $derived.by((): TradeRow[] => {
-		const q = searchQuery.trim().toLowerCase();
-		return trades.filter((t) => {
-			const rowSide = normalizeSide(t.side);
-			if (directionFilter !== "all" && rowSide !== directionFilter) return false;
-			if (statusFilter !== "all" && t.status !== statusFilter) return false;
-			if (!q) return true;
-			return (
-				t.symbol.toLowerCase().includes(q) ||
-				(t.side ?? "").toLowerCase().includes(q) ||
-				t.status.toLowerCase().includes(q)
-			);
+	const filteredTrades = $derived(tradeStore.trades as TradeRow[]);
+
+	function goToPage(p: number) {
+		currentPage = p;
+		void tradeStore.getTradesByAccount(supabase, {
+			page: p,
+			pageSize: PAGE_SIZE,
+			search: debouncedSearch,
+			side: directionFilter as "long" | "short" | "all",
+			status: statusFilter as "open" | "closed" | "all",
 		});
-	});
+	}
 
 	function formatUsd(value?: number | null) {
 		if (value == null || Number.isNaN(value)) return "—";
@@ -360,7 +362,7 @@
         const entry = num(formEntryPrice);
         const qty = num(formQuantity);
         if (risk == null || risk <= 0 || entry == null || qty == null || qty <= 0 || !selectedInstrument) return null;
-        const pv = (selectedInstrument.tick_value / selectedInstrument.tick_size) * (selectedInstrument.contract_size ?? 1);
+        const pv = selectedInstrument.tick_value / selectedInstrument.tick_size;
         if (!Number.isFinite(pv) || pv <= 0) return null;
         const distance = risk / (pv * qty);
         const raw = formSide === "long" ? entry - distance : entry + distance;
@@ -380,7 +382,7 @@
         const entry = num(formEntryPrice);
         const qty = num(formQuantity);
         if (profit == null || profit <= 0 || entry == null || qty == null || qty <= 0 || !selectedInstrument) return null;
-        const pv = (selectedInstrument.tick_value / selectedInstrument.tick_size) * (selectedInstrument.contract_size ?? 1);
+        const pv = selectedInstrument.tick_value / selectedInstrument.tick_size;
         if (!Number.isFinite(pv) || pv <= 0) return null;
         const distance = profit / (pv * qty);
         const raw = formSide === "long" ? entry + distance : entry - distance;
@@ -601,8 +603,25 @@
 	});
 
 	$effect(() => {
+		const q = searchQuery;
+		clearTimeout(_searchTimer);
+		_searchTimer = setTimeout(() => { debouncedSearch = q; }, 300);
+		return () => clearTimeout(_searchTimer);
+	});
+
+	$effect(() => {
 		void accountStore.activeAccountId;
-		void tradeStore.getTradesByAccount(supabase);
+		void debouncedSearch;
+		void directionFilter;
+		void statusFilter;
+		currentPage = 1;
+		void tradeStore.getTradesByAccount(supabase, {
+			page: 1,
+			pageSize: PAGE_SIZE,
+			search: debouncedSearch,
+			side: directionFilter as "long" | "short" | "all",
+			status: statusFilter as "open" | "closed" | "all",
+		});
 	});
 
 	$effect(() => {
@@ -631,13 +650,26 @@
     });
 </script>
 
-<HeaderNavbar links={true}>
+<HeaderNavbar links={true} {helpContent}>
 	<Breadcrumb.Root>
 		<Breadcrumb.List>
 			<Breadcrumb.Page>Trades</Breadcrumb.Page>
 		</Breadcrumb.List>
 	</Breadcrumb.Root>
 </HeaderNavbar>
+
+{#snippet helpContent()}
+	<div class="space-y-3 text-sm">
+		<p class="text-muted-foreground">The Trades page is your full trade journal. Log, filter, and review every trade across your accounts.</p>
+		<ul class="list-disc list-inside space-y-1 text-muted-foreground">
+			<li>Use the <strong>+ Add Trade</strong> button to log a new trade manually.</li>
+			<li>Filter by date, strategy, mistake, or instrument using the filter bar.</li>
+			<li>Switch between card view and list view using the icons in the toolbar.</li>
+			<li>Click the share icon on a trade card to generate a shareable P&L image.</li>
+			<li>Edit or delete a trade by opening it and using the action buttons.</li>
+		</ul>
+	</div>
+{/snippet}
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
 	<div class="container mx-auto max-w-8xl space-y-4 p-4 md:p-6">
 		<div class="flex items-center justify-between">
@@ -731,7 +763,7 @@
 			{:else}
 			<div class="rounded-md border bg-background p-4">
 				<div class="text-xs text-muted-foreground">Trades</div>
-				<div class="mt-1 text-2xl font-semibold tabular-nums">{stats.count}</div>
+				<div class="mt-1 text-2xl font-semibold tabular-nums">{tradeStore.total}</div>
 			</div>
 			<div
 				class={[
@@ -1109,9 +1141,17 @@
 					</table>
 				</div>
 			{/if}
-			{#if !loading && filteredTrades.length > 0}
-				<div class="border-t px-4 py-2.5 text-xs text-muted-foreground text-right">
-					Showing <span class="tabular-nums">{filteredTrades.length}</span> {filteredTrades.length === 1 ? "trade" : "trades"}
+			{#if !loading && tradeStore.total > 0}
+				{@const totalPages = Math.ceil(tradeStore.total / PAGE_SIZE)}
+				<div class="flex items-center justify-between border-t px-4 py-2.5 text-xs text-muted-foreground">
+					<span class="tabular-nums">
+						{(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, tradeStore.total)} of {tradeStore.total} {tradeStore.total === 1 ? "trade" : "trades"}
+					</span>
+					<div class="flex items-center gap-1">
+						<Button variant="outline" size="sm" class="h-7 px-2 text-xs" disabled={currentPage <= 1} onclick={() => goToPage(currentPage - 1)}>Previous</Button>
+						<span class="px-2 tabular-nums">{currentPage} / {totalPages}</span>
+						<Button variant="outline" size="sm" class="h-7 px-2 text-xs" disabled={currentPage >= totalPages} onclick={() => goToPage(currentPage + 1)}>Next</Button>
+					</div>
 				</div>
 			{/if}
 		</div>

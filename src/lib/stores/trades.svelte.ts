@@ -74,30 +74,48 @@ export type TradeUpdatePayload = {
     mistake_ids?: string[];
 };
 
+export type TradeFilters = {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    side?: "long" | "short" | "all";
+    status?: "open" | "closed" | "all";
+};
+
 function createTradeStore() {
     let loading = $state(false);
     let trades = $state<Trade[]>([]);
+    let total = $state(0);
+    let page = $state(1);
+    let pageSize = $state(10);
+    let lastFilters = $state<TradeFilters>({});
 
-    async function getTradesByAccount(supabase: SupabaseClient) {
+    async function getTradesByAccount(supabase: SupabaseClient, filters: TradeFilters = lastFilters) {
+        lastFilters = filters;
         const accountId = accountStore.activeAccountId;
         if (!accountId) {
             trades = [];
+            total = 0;
             return;
         }
+
+        const params = new URLSearchParams({ accountId });
+        params.set("page",     String(filters.page     ?? 1));
+        params.set("pageSize", String(filters.pageSize ?? 10));
+        if (filters.search)                params.set("search", filters.search);
+        if (filters.side   && filters.side   !== "all") params.set("side",   filters.side);
+        if (filters.status && filters.status !== "all") params.set("status", filters.status);
 
         try {
             loading = true;
             const token = await getAuthToken(supabase);
-            const response = await fetch(
-                `/api/trades?accountId=${encodeURIComponent(accountId)}`,
-                {
-                    credentials: "include",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `Bearer ${token}`,
-                    },
+            const response = await fetch(`/api/trades?${params.toString()}`, {
+                credentials: "include",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`,
                 },
-            );
+            });
 
             const result = await response.json();
 
@@ -105,7 +123,10 @@ function createTradeStore() {
                 throw new Error(result.message || "Failed to get trades for this account");
             }
 
-            trades = result.data as Trade[];
+            trades    = result.data as Trade[];
+            total     = result.total ?? 0;
+            page      = result.page  ?? 1;
+            pageSize  = result.pageSize ?? 25;
         } catch (e) {
             console.error("Error getting trades for this account", e);
         } finally {
@@ -114,14 +135,15 @@ function createTradeStore() {
     }
 
     return {
-        get loading() {
-            return loading;
-        },
-        get trades() {
-            return trades;
-        },
+        get loading()  { return loading;  },
+        get trades()   { return trades;   },
+        get total()    { return total;    },
+        get page()     { return page;     },
+        get pageSize() { return pageSize; },
         clear: () => {
             trades = [];
+            total  = 0;
+            page   = 1;
         },
         getTradesByAccount,
         createTrade: async (supabase: SupabaseClient, payload: TradeCreatePayload) => {

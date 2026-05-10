@@ -194,13 +194,25 @@
 	});
 </script>
 
-<HeaderNavbar links={true}>
+<HeaderNavbar links={true} {helpContent}>
 	<Breadcrumb.Root>
 		<Breadcrumb.List>
 			<Breadcrumb.Page>Dashboard</Breadcrumb.Page>
 		</Breadcrumb.List>
 	</Breadcrumb.Root>
 </HeaderNavbar>
+
+{#snippet helpContent()}
+	<div class="space-y-3 text-sm">
+		<p class="text-muted-foreground">The Dashboard gives you a real-time overview of your active trading account.</p>
+		<ul class="list-disc list-inside space-y-1 text-muted-foreground">
+			<li>Switch between accounts using the account selector in the sidebar.</li>
+			<li>The top cards show today's P&L, total trades, win rate, and average R.</li>
+			<li>Recent trades are listed below — click any trade to view its details.</li>
+			<li>Prop firm rules (if applicable) are displayed as a live progress tracker.</li>
+		</ul>
+	</div>
+{/snippet}
 
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
 	<div class="container mx-auto max-w-8xl space-y-4 p-4 md:p-6">

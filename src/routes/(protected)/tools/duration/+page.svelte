@@ -119,7 +119,7 @@
 	});
 </script>
 
-<HeaderNavbar links={true}>
+<HeaderNavbar links={true} {helpContent}>
 	<Breadcrumb.Root>
 		<Breadcrumb.List>
 			<Breadcrumb.Item>Tools</Breadcrumb.Item>
@@ -128,6 +128,17 @@
 		</Breadcrumb.List>
 	</Breadcrumb.Root>
 </HeaderNavbar>
+
+{#snippet helpContent()}
+	<div class="space-y-3 text-sm">
+		<p class="text-muted-foreground">Trade Duration analyses how long you hold positions and whether hold time correlates with profitability.</p>
+		<ul class="list-disc list-inside space-y-1 text-muted-foreground">
+			<li>Charts bucket your trades by duration (seconds, minutes, hours).</li>
+			<li>See whether your winners tend to be held longer or shorter than your losers.</li>
+			<li>Use this to refine your exit rules and holding time targets.</li>
+		</ul>
+	</div>
+{/snippet}
 
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
 	<div class="container mx-auto max-w-5xl space-y-4 p-4 md:p-6">

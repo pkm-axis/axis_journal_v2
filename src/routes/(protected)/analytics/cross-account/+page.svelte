@@ -145,7 +145,7 @@
 	const maxAbsPnl = $derived(Math.max(1, ...perAccount.map((a) => Math.abs(a.netPnl))));
 </script>
 
-<HeaderNavbar links={true}>
+<HeaderNavbar links={true} {helpContent}>
 	<Breadcrumb.Root>
 		<Breadcrumb.List>
 			<Breadcrumb.Item>Analytics</Breadcrumb.Item>
@@ -154,6 +154,17 @@
 		</Breadcrumb.List>
 	</Breadcrumb.Root>
 </HeaderNavbar>
+
+{#snippet helpContent()}
+	<div class="space-y-3 text-sm">
+		<p class="text-muted-foreground">Cross-account Analysis lets you compare performance metrics across all your trading accounts side by side.</p>
+		<ul class="list-disc list-inside space-y-1 text-muted-foreground">
+			<li>All accounts are shown together — no need to switch between them in the sidebar.</li>
+			<li>Metrics like total P&L, win rate, and trade count are shown per account.</li>
+			<li>Useful for identifying which account is performing best at a glance.</li>
+		</ul>
+	</div>
+{/snippet}
 
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
 	<div class="container mx-auto max-w-6xl space-y-6 p-4 md:p-6">

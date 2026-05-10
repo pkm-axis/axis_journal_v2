@@ -106,7 +106,7 @@
 	}
 </script>
 
-<HeaderNavbar links={true}>
+<HeaderNavbar links={true} {helpContent}>
 	<Breadcrumb.Root>
 		<Breadcrumb.List>
 			<Breadcrumb.Item>Tools</Breadcrumb.Item>
@@ -115,6 +115,17 @@
 		</Breadcrumb.List>
 	</Breadcrumb.Root>
 </HeaderNavbar>
+
+{#snippet helpContent()}
+	<div class="space-y-3 text-sm">
+		<p class="text-muted-foreground">The Risk Calculator helps you size positions correctly so you never risk more than intended on a single trade.</p>
+		<ul class="list-disc list-inside space-y-1 text-muted-foreground">
+			<li>Enter your account size and risk percentage, then select your instrument and trade side.</li>
+			<li>The calculator uses the instrument's tick size and value to work out the correct position size.</li>
+			<li>The result shows you how many contracts to trade for your given risk amount.</li>
+		</ul>
+	</div>
+{/snippet}
 
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
 	<div class="container mx-auto max-w-5xl space-y-4 p-4 md:p-6">

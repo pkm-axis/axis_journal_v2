@@ -144,7 +144,7 @@
 	});
 </script>
 
-<HeaderNavbar links={true}>
+<HeaderNavbar links={true} {helpContent}>
 	<Breadcrumb.Root>
 		<Breadcrumb.List>
 			<Breadcrumb.Item>Tools</Breadcrumb.Item>
@@ -153,6 +153,17 @@
 		</Breadcrumb.List>
 	</Breadcrumb.Root>
 </HeaderNavbar>
+
+{#snippet helpContent()}
+	<div class="space-y-3 text-sm">
+		<p class="text-muted-foreground">The P&L Calendar shows your daily profit and loss laid out in a calendar grid so you can spot patterns across the week or month.</p>
+		<ul class="list-disc list-inside space-y-1 text-muted-foreground">
+			<li>Green days are profitable, red days are losing days.</li>
+			<li>Navigate between months using the arrow buttons at the top of the calendar.</li>
+			<li>Use the share button to export a shareable image of your calendar.</li>
+		</ul>
+	</div>
+{/snippet}
 
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
 	<div class="container mx-auto max-w-5xl space-y-4 p-4 md:p-6">
