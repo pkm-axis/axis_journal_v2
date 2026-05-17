@@ -16,6 +16,7 @@
     import { instrumentStore } from "$lib/stores/instruments.svelte";
     import { strategyStore } from "$lib/stores/strategies.svelte";
     import { mistakeStore } from "$lib/stores/mistakes.svelte";
+    import { checklistStore } from "$lib/stores/checklist.svelte";
 	import { supabase } from "$lib/supabase/client";
 
     let { user, ref = $bindable(null), collapsible = "icon", ...restProps }: ComponentProps<typeof Sidebar.Root> & {
@@ -29,6 +30,7 @@
         instrumentStore.getInstruments(supabase);
         strategyStore.getStrategies(supabase);
         mistakeStore.getMistakes(supabase);
+        checklistStore.getItems(supabase);
     });
 
     const sidebarData = {

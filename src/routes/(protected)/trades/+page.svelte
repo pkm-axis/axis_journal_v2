@@ -34,6 +34,7 @@
 	import { instrumentStore, instrumentPnl } from "$lib/stores/instruments.svelte";
 	import { strategyStore } from "$lib/stores/strategies.svelte";
 	import { mistakeStore } from "$lib/stores/mistakes.svelte";
+	import { checklistStore } from "$lib/stores/checklist.svelte";
 	import { MultiSelect } from "$lib/components/ui/multi-select";
 	import { Skeleton } from "$lib/components/ui/skeleton";
 	import PnlShareDialog from "$lib/components/pnl-share-sheet/pnl-share-dialog.svelte";
@@ -63,6 +64,7 @@
 		updated_at: string;
 		strategy_ids?: string[];
 		mistake_ids?: string[];
+		checklist_item_ids?: string[];
 		emotional_states?: string[] | null;
 		confidence?: number | null;
 		mental_state?: string | null;
@@ -172,6 +174,7 @@
 	let formNotes = $state("");
 	let formStrategyIds = $state<string[]>([]);
 	let formMistakeIds = $state<string[]>([]);
+	let formChecklistItemIds = $state<string[]>([]);
 	/** Optional: when filled, derives stop loss from entry, qty, side, and instrument. */
 	let formRiskInput = $state("");
 	/** Optional: when filled, derives take profit from entry, qty, side, and instrument. */
@@ -203,6 +206,7 @@
 		formNotes = "";
 		formStrategyIds = [];
 		formMistakeIds = [];
+		formChecklistItemIds = [];
 		formRiskInput = "";
 		formProfitInput = "";
 		showRiskProfit = false;
@@ -251,6 +255,7 @@
 		formNotes = t.notes ?? "";
 		formStrategyIds = [...(t.strategy_ids ?? [])];
 		formMistakeIds = [...(t.mistake_ids ?? [])];
+		formChecklistItemIds = [...((t as TradeRow & { checklist_item_ids?: string[] }).checklist_item_ids ?? [])];
 		formRiskInput = "";
 		formProfitInput = "";
 		formScreenshotFile = null;
@@ -572,6 +577,18 @@
 
 		const dollarRisk = stopLossPnL != null ? Math.abs(stopLossPnL) : 0;
 
+		if (!editingTradeId && checklistStore.items.length > 0) {
+			const missing = checklistStore.items.filter((i) => !formChecklistItemIds.includes(i.id));
+			if (missing.length > 0) {
+				const preview = missing.slice(0, 5).map((i) => `• ${i.label}`).join("\n");
+				const extra = missing.length > 5 ? `\n• …and ${missing.length - 5} more` : "";
+				const ok = confirm(
+					`You haven't ticked ${missing.length} of ${checklistStore.items.length} checklist item${missing.length === 1 ? "" : "s"}:\n\n${preview}${extra}\n\nSave the trade anyway?`
+				);
+				if (!ok) return;
+			}
+		}
+
 		saving = true;
 		const openedAtIso = new Date(formOpenedAt).toISOString();
 		const exitPrice = formStatus === "closed" ? (num(formExitPrice) ?? null) : null;
@@ -610,7 +627,8 @@
 					entry_reason: formEntryReason.trim() || null,
 					exit_reason: formStatus === "closed" ? (formExitReason.trim() || null) : null,
 					strategy_ids: formStrategyIds,
-					mistake_ids: formStatus === "closed" ? formMistakeIds : []
+					mistake_ids: formStatus === "closed" ? formMistakeIds : [],
+					checklist_item_ids: formChecklistItemIds
 				});
 			} else {
 				const created = await tradeStore.createTrade(supabase, {
@@ -636,7 +654,8 @@
 					entry_reason: formEntryReason.trim() || null,
 					exit_reason: formStatus === "closed" ? (formExitReason.trim() || null) : null,
 					strategy_ids: formStrategyIds,
-					mistake_ids: formStatus === "closed" ? formMistakeIds : []
+					mistake_ids: formStatus === "closed" ? formMistakeIds : [],
+					checklist_item_ids: formChecklistItemIds
 				});
 				if (formScreenshotFile && created?.id) {
 					const screenshotUrl = await uploadTradeScreenshot(session.user.id, created.id, formScreenshotFile);
@@ -1495,6 +1514,47 @@
 							</p>
 						</div>
 					{/if}
+
+					{#if checklistStore.items.length > 0}
+						{@const total = checklistStore.items.length}
+						{@const checked = formChecklistItemIds.length}
+						{@const allChecked = checked === total}
+						<div class="space-y-1.5 rounded-md border p-3">
+							<div class="flex items-center justify-between gap-2">
+								<div>
+									<div class="text-xs font-medium">Pre-trade checklist</div>
+									<p class="text-[11px] text-muted-foreground leading-snug">Confirm your rules before saving. {checked}/{total} checked.</p>
+								</div>
+								<button
+									type="button"
+									class="text-[11px] text-primary hover:underline cursor-pointer"
+									onclick={() => {
+										formChecklistItemIds = allChecked ? [] : checklistStore.items.map((i) => i.id);
+									}}
+								>
+									{allChecked ? "Uncheck all" : "Check all"}
+								</button>
+							</div>
+							<div class="space-y-1">
+								{#each checklistStore.items as item (item.id)}
+									{@const on = formChecklistItemIds.includes(item.id)}
+									<label class="flex items-start gap-2 cursor-pointer rounded-md px-1 py-1 hover:bg-muted/40">
+										<input
+											type="checkbox"
+											class="mt-0.5 h-4 w-4 cursor-pointer accent-primary"
+											checked={on}
+											onchange={() => {
+												formChecklistItemIds = on
+													? formChecklistItemIds.filter((x) => x !== item.id)
+													: [...formChecklistItemIds, item.id];
+											}}
+										/>
+										<span class={["text-xs leading-snug", on && "text-muted-foreground line-through"]}>{item.label}</span>
+									</label>
+								{/each}
+							</div>
+						</div>
+					{/if}
 				{/if}
 
 				{#if tradeStep === 2}
@@ -1873,6 +1933,26 @@
 								<p class="text-xs whitespace-pre-wrap text-muted-foreground">{psychMental ?? "—"}</p>
 							</div>
 						</div>
+
+						<!-- Pre-trade checklist -->
+						{#if checklistStore.items.length > 0}
+							{@const tChecklistIds = (t as TradeRow & { checklist_item_ids?: string[] }).checklist_item_ids ?? []}
+							<div class="space-y-2">
+								<div class="text-xs font-medium text-muted-foreground uppercase tracking-wide">Pre-trade checklist</div>
+								<ul class="space-y-1">
+									{#each checklistStore.items as item (item.id)}
+										{@const on = tChecklistIds.includes(item.id)}
+										<li class="flex items-start gap-2 text-xs">
+											<span class={[
+												"mt-0.5 inline-flex h-4 w-4 items-center justify-center rounded-sm border text-[10px] font-bold",
+												on ? "border-emerald-700/40 bg-emerald-700/10 text-emerald-700 dark:text-emerald-400" : "border-muted-foreground/30 text-muted-foreground/40",
+											]}>{on ? "✓" : ""}</span>
+											<span class={on ? "" : "text-muted-foreground line-through"}>{item.label}</span>
+										</li>
+									{/each}
+								</ul>
+							</div>
+						{/if}
 
 						<!-- Strategies & mistakes -->
 						{#if (t.strategy_ids ?? []).length > 0 || (t.mistake_ids ?? []).length > 0}

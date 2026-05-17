@@ -30,6 +30,7 @@ export type TradeCreatePayload = {
     exit_reason?: string | null;
     strategy_ids?: string[];
     mistake_ids?: string[];
+    checklist_item_ids?: string[];
 };
 
 export interface Trade {
@@ -63,6 +64,7 @@ export interface Trade {
     updated_at: string;
     strategy_ids?: string[];
     mistake_ids?: string[];
+    checklist_item_ids?: string[];
 }
 
 /** Fields sent to PATCH /api/trades/[id] (no user_id / account_id). */
@@ -90,6 +92,7 @@ export type TradeUpdatePayload = {
     exit_reason?: string | null;
     strategy_ids?: string[];
     mistake_ids?: string[];
+    checklist_item_ids?: string[];
 };
 
 export type TradeFilters = {

@@ -32,7 +32,8 @@ export async function POST({ request, locals: { supabase, safeGetSession } }) {
         entry_reason,
         exit_reason,
         strategy_ids,
-        mistake_ids
+        mistake_ids,
+        checklist_item_ids
     } = body;
 
     const { data, error } = await supabase
@@ -115,6 +116,19 @@ export async function POST({ request, locals: { supabase, safeGetSession } }) {
                 .from("trade_mistakes")
                 .insert(rows);
             if (linkErr) console.log("Mistake link error:", linkErr);
+        }
+    }
+
+    if (Array.isArray(checklist_item_ids) && checklist_item_ids.length > 0) {
+        const rows = checklist_item_ids
+            .filter((cid: unknown): cid is string => typeof cid === "string" && cid.length > 0)
+            .map((item_id: string) => ({ trade_id: data.id, item_id }));
+        if (rows.length > 0) {
+            const { error: linkErr } = await supabase
+                .schema("trading")
+                .from("trade_checklist_responses")
+                .insert(rows);
+            if (linkErr) console.log("Checklist link error:", linkErr);
         }
     }
 

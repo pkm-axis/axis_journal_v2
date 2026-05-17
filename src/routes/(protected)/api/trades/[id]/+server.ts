@@ -148,6 +148,41 @@ export const PATCH: RequestHandler = async ({ params, request, locals: { supabas
 		}
 	}
 
+	if (Array.isArray(body.checklist_item_ids)) {
+		const desired = new Set(
+			(body.checklist_item_ids as unknown[]).filter(
+				(cid): cid is string => typeof cid === "string" && cid.length > 0
+			)
+		);
+
+		const { data: existing } = await supabase
+			.schema("trading")
+			.from("trade_checklist_responses")
+			.select("item_id")
+			.eq("trade_id", id);
+
+		const current = new Set(
+			(existing ?? []).map((r: { item_id: string }) => r.item_id)
+		);
+		const toAdd = [...desired].filter((c) => !current.has(c));
+		const toRemove = [...current].filter((c): c is string => !desired.has(c as string));
+
+		if (toRemove.length > 0) {
+			await supabase
+				.schema("trading")
+				.from("trade_checklist_responses")
+				.delete()
+				.eq("trade_id", id)
+				.in("item_id", toRemove);
+		}
+		if (toAdd.length > 0) {
+			await supabase
+				.schema("trading")
+				.from("trade_checklist_responses")
+				.insert(toAdd.map((item_id) => ({ trade_id: id, item_id })));
+		}
+	}
+
 	return json({ success: true, data, message: "Trade updated successfully." });
 };
 

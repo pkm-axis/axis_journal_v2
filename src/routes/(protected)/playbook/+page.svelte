@@ -12,6 +12,7 @@
 	import { supabase } from "$lib/supabase/client";
 	import { strategyStore, type Strategy } from "$lib/stores/strategies.svelte";
 	import { mistakeStore, type Mistake } from "$lib/stores/mistakes.svelte";
+	import { checklistStore, type ChecklistItem } from "$lib/stores/checklist.svelte";
 	import { toast } from "svelte-sonner";
 
 	type Kind = "strategy" | "mistake";
@@ -41,6 +42,57 @@
 	let saving = $state(false);
 
 	const isEditing = $derived(editingId != null);
+
+	// ── Checklist ─────────────────────────────────────────────────────────────
+	let checklistNewLabel = $state("");
+	let checklistEditingId = $state<string | null>(null);
+	let checklistEditingLabel = $state("");
+	let checklistSaving = $state(false);
+
+	async function addChecklistItem() {
+		const label = checklistNewLabel.trim();
+		if (!label) return;
+		checklistSaving = true;
+		try {
+			const nextOrder = (checklistStore.items.at(-1)?.sort_order ?? 0) + 10;
+			await checklistStore.createItem(supabase, { label, sort_order: nextOrder });
+			checklistNewLabel = "";
+			toast.success("Checklist item added.");
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : "Failed to add item.");
+		} finally {
+			checklistSaving = false;
+		}
+	}
+
+	function startEditChecklistItem(item: ChecklistItem) {
+		checklistEditingId = item.id;
+		checklistEditingLabel = item.label;
+	}
+
+	async function saveChecklistEdit() {
+		if (!checklistEditingId) return;
+		const label = checklistEditingLabel.trim();
+		if (!label) return;
+		try {
+			await checklistStore.updateItem(supabase, checklistEditingId, { label });
+			checklistEditingId = null;
+			checklistEditingLabel = "";
+			toast.success("Updated.");
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : "Failed to update.");
+		}
+	}
+
+	async function removeChecklistItem(item: ChecklistItem) {
+		if (!confirm(`Delete "${item.label}"? Any past trade ticks for this item will be removed.`)) return;
+		try {
+			await checklistStore.deleteItem(supabase, item.id);
+			toast.success(`"${item.label}" deleted.`);
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : "Failed to delete.");
+		}
+	}
 
 	// ── Trades dialog ─────────────────────────────────────────────────────────
 	let dialogOpen = $state(false);
@@ -143,6 +195,7 @@
 	onMount(async () => {
 		void strategyStore.getStrategies(supabase);
 		void mistakeStore.getMistakes(supabase);
+		void checklistStore.getItems(supabase);
 		tradesLoading = true;
 		try {
 			const res = await fetch("/api/trades/all", { credentials: "include" });
@@ -332,6 +385,89 @@
 					</Button>
 				</div>
 				{@render itemList("mistake", mistakeStore.mistakes, mistakeStore.loading, "No mistakes catalogued", "Add common errors you want to track (e.g. \"Moved stop\").")}
+			</section>
+
+			<section class="space-y-3">
+				<div class="flex items-center justify-between">
+					<div>
+						<h2 class="text-lg font-semibold">Pre-trade checklist</h2>
+						<p class="text-xs text-muted-foreground">Rules you tick off before saving any entry.</p>
+					</div>
+				</div>
+
+				<div class="rounded-md border bg-background">
+					<div class="flex items-center gap-2 border-b p-3">
+						<Input
+							bind:value={checklistNewLabel}
+							placeholder='e.g. "In session window", "Risk ≤ 1%", "Not revenge trading"'
+							class="rounded-md"
+							onkeydown={(e) => { if (e.key === "Enter") { e.preventDefault(); void addChecklistItem(); } }}
+						/>
+						<Button
+							size="sm"
+							class="cursor-pointer rounded-md"
+							disabled={checklistSaving || !checklistNewLabel.trim()}
+							onclick={addChecklistItem}
+						>
+							<PlusIcon size={14} /> Add
+						</Button>
+					</div>
+					{#if checklistStore.loading}
+						<ul class="divide-y">
+							{#each [0, 1, 2] as _}
+								<li class="px-4 py-3"><Skeleton class="h-4 w-48" /></li>
+							{/each}
+						</ul>
+					{:else if checklistStore.items.length === 0}
+						<div class="p-8 text-center">
+							<div class="text-sm font-medium">No checklist items yet</div>
+							<div class="mt-1 text-sm text-muted-foreground">Add the rules you want to confirm before every trade.</div>
+						</div>
+					{:else}
+						<ul class="divide-y">
+							{#each checklistStore.items as item (item.id)}
+								<li class="flex items-center justify-between gap-3 px-4 py-2.5">
+									{#if checklistEditingId === item.id}
+										<Input
+											bind:value={checklistEditingLabel}
+											class="rounded-md"
+											onkeydown={(e) => {
+												if (e.key === "Enter") { e.preventDefault(); void saveChecklistEdit(); }
+												if (e.key === "Escape") { checklistEditingId = null; }
+											}}
+										/>
+										<div class="flex shrink-0 items-center gap-1">
+											<Button size="sm" class="cursor-pointer rounded-md" onclick={saveChecklistEdit}>Save</Button>
+											<Button size="sm" variant="ghost" class="cursor-pointer rounded-md" onclick={() => (checklistEditingId = null)}>Cancel</Button>
+										</div>
+									{:else}
+										<div class="min-w-0 flex-1 text-sm">{item.label}</div>
+										<div class="flex shrink-0 items-center gap-1">
+											<Button
+												variant="ghost"
+												size="icon"
+												class="h-8 w-8 cursor-pointer"
+												onclick={() => startEditChecklistItem(item)}
+												aria-label="Edit"
+											>
+												<PencilSimpleIcon size={16} class="text-muted-foreground" />
+											</Button>
+											<Button
+												variant="ghost"
+												size="icon"
+												class="h-8 w-8 cursor-pointer text-rose-700 hover:bg-rose-700/10 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-400"
+												onclick={() => removeChecklistItem(item)}
+												aria-label="Delete"
+											>
+												<TrashIcon size={16} />
+											</Button>
+										</div>
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
 			</section>
 		</div>
 	</div>
