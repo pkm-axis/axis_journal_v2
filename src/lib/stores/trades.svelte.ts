@@ -26,6 +26,8 @@ export type TradeCreatePayload = {
     confidence?: number | null;
     mental_state?: string | null;
     followed_plan?: "yes" | "no" | "partial" | null;
+    entry_reason?: string | null;
+    exit_reason?: string | null;
     strategy_ids?: string[];
     mistake_ids?: string[];
 };
@@ -55,6 +57,8 @@ export interface Trade {
     confidence: number | null;
     mental_state: string | null;
     followed_plan: "yes" | "no" | "partial" | null;
+    entry_reason: string | null;
+    exit_reason: string | null;
     created_at: string;
     updated_at: string;
     strategy_ids?: string[];
@@ -82,6 +86,8 @@ export type TradeUpdatePayload = {
     confidence?: number | null;
     mental_state?: string | null;
     followed_plan?: "yes" | "no" | "partial" | null;
+    entry_reason?: string | null;
+    exit_reason?: string | null;
     strategy_ids?: string[];
     mistake_ids?: string[];
 };

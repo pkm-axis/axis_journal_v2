@@ -19,7 +19,7 @@ const updatableKeys = [
 	"screenshot_url"
 ] as const;
 
-const psychKeys = ["emotional_states", "confidence", "mental_state", "followed_plan"] as const;
+const psychKeys = ["emotional_states", "confidence", "mental_state", "followed_plan", "entry_reason", "exit_reason"] as const;
 
 type UpdatableKey = (typeof updatableKeys)[number];
 

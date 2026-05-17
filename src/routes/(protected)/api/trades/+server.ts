@@ -20,7 +20,7 @@ export async function GET({ url, locals: { supabase, safeGetSession } }) {
     let query = supabase
         .schema("trading")
         .from("trades")
-        .select("*, trade_strategies(strategy_id), trade_mistakes(mistake_id), trade_psychology(emotional_states, confidence, mental_state, followed_plan)", { count: "exact" })
+        .select("*, trade_strategies(strategy_id), trade_mistakes(mistake_id), trade_psychology(emotional_states, confidence, mental_state, followed_plan, entry_reason, exit_reason)", { count: "exact" })
         .eq("user_id", user.id)
         .eq("account_id", accountId)
         .order("opened_at", { ascending: false });
@@ -44,6 +44,8 @@ export async function GET({ url, locals: { supabase, safeGetSession } }) {
             confidence: number | null;
             mental_state: string | null;
             followed_plan: "yes" | "no" | "partial" | null;
+            entry_reason: string | null;
+            exit_reason: string | null;
         } | null) ?? null;
         const { trade_strategies, trade_mistakes, trade_psychology, ...rest } = t;
         return {
@@ -54,6 +56,8 @@ export async function GET({ url, locals: { supabase, safeGetSession } }) {
             confidence:       psych?.confidence       ?? null,
             mental_state:     psych?.mental_state     ?? null,
             followed_plan:    psych?.followed_plan    ?? null,
+            entry_reason:     psych?.entry_reason     ?? null,
+            exit_reason:      psych?.exit_reason      ?? null,
         };
     });
 

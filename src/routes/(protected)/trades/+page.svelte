@@ -67,6 +67,8 @@
 		confidence?: number | null;
 		mental_state?: string | null;
 		followed_plan?: "yes" | "no" | "partial" | null;
+		entry_reason?: string | null;
+		exit_reason?: string | null;
 		screenshot_url?: string | null;
 	}
 
@@ -144,6 +146,8 @@
 	let formConfidence = $state<number | null>(null);
 	let formMentalState = $state("");
 	let formFollowedPlan = $state<"yes" | "no" | "partial" | null>(null);
+	let formEntryReason = $state("");
+	let formExitReason = $state("");
 
 	function toggleEmotionalState(s: string) {
 		formEmotionalStates = formEmotionalStates.includes(s)
@@ -209,6 +213,8 @@
 		formConfidence = null;
 		formMentalState = "";
 		formFollowedPlan = null;
+		formEntryReason = "";
+		formExitReason = "";
 		tradeStep = 1;
 	}
 
@@ -255,11 +261,15 @@
 			confidence?: number | null;
 			mental_state?: string | null;
 			followed_plan?: "yes" | "no" | "partial" | null;
+			entry_reason?: string | null;
+			exit_reason?: string | null;
 		};
 		formEmotionalStates = [...(tt.emotional_states ?? [])];
 		formConfidence = tt.confidence ?? null;
 		formMentalState = tt.mental_state ?? "";
 		formFollowedPlan = tt.followed_plan ?? null;
+		formEntryReason = tt.entry_reason ?? "";
+		formExitReason = tt.exit_reason ?? "";
 		tradeStep = 1;
 		tradeSheetOpen = true;
 	}
@@ -597,6 +607,8 @@
 					confidence: formConfidence,
 					mental_state: formMentalState.trim() || null,
 					followed_plan: formFollowedPlan,
+					entry_reason: formEntryReason.trim() || null,
+					exit_reason: formStatus === "closed" ? (formExitReason.trim() || null) : null,
 					strategy_ids: formStrategyIds,
 					mistake_ids: formStatus === "closed" ? formMistakeIds : []
 				});
@@ -621,6 +633,8 @@
 					confidence: formConfidence,
 					mental_state: formMentalState.trim() || null,
 					followed_plan: formFollowedPlan,
+					entry_reason: formEntryReason.trim() || null,
+					exit_reason: formStatus === "closed" ? (formExitReason.trim() || null) : null,
 					strategy_ids: formStrategyIds,
 					mistake_ids: formStatus === "closed" ? formMistakeIds : []
 				});
@@ -1485,6 +1499,30 @@
 
 				{#if tradeStep === 2}
 					<div class="space-y-1.5">
+						<div class="text-xs font-medium">Why did you enter the trade?</div>
+						<p class="text-[11px] text-muted-foreground leading-snug">The thesis or setup that triggered your entry — capture it before the outcome biases your memory.</p>
+						<textarea
+							bind:value={formEntryReason}
+							rows="3"
+							class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[72px] w-full rounded-md border px-3 py-2 text-xs shadow-xs outline-none focus-visible:ring-1 disabled:cursor-not-allowed disabled:opacity-50"
+							placeholder="e.g. Pullback to VWAP after liquidity sweep, trend intact on HTF…"
+						></textarea>
+					</div>
+
+					{#if formStatus === "closed"}
+						<div class="space-y-1.5">
+							<div class="text-xs font-medium">Why did you exit the trade?</div>
+							<p class="text-[11px] text-muted-foreground leading-snug">What actually got you out — target, stop, invalidation, or a discretionary call.</p>
+							<textarea
+								bind:value={formExitReason}
+								rows="3"
+								class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[72px] w-full rounded-md border px-3 py-2 text-xs shadow-xs outline-none focus-visible:ring-1 disabled:cursor-not-allowed disabled:opacity-50"
+								placeholder="e.g. Hit take profit, scratched on momentum stall, panicked out early…"
+							></textarea>
+						</div>
+					{/if}
+
+					<div class="space-y-1.5">
 						<div class="text-xs font-medium">Emotional state</div>
 						<p class="text-[11px] text-muted-foreground leading-snug">Pick all that applied at the moment of placing this trade.</p>
 						<div class="flex flex-wrap gap-1.5 pt-1">
@@ -1719,6 +1757,8 @@
 					{@const psychConfidence = (t as TradeRow & { confidence?: number | null }).confidence ?? null}
 					{@const psychMental = (t as TradeRow & { mental_state?: string | null }).mental_state ?? null}
 					{@const psychPlan = (t as TradeRow & { followed_plan?: "yes" | "no" | "partial" | null }).followed_plan ?? null}
+					{@const psychEntryReason = (t as TradeRow & { entry_reason?: string | null }).entry_reason ?? null}
+					{@const psychExitReason = (t as TradeRow & { exit_reason?: string | null }).exit_reason ?? null}
 
 					<Sheet.Header>
 						<Sheet.Title class="flex items-center gap-2">
@@ -1796,6 +1836,16 @@
 						<!-- Psychology -->
 						<div class="space-y-2">
 							<div class="text-xs font-medium text-muted-foreground uppercase tracking-wide">Psychology</div>
+							<div>
+								<div class="text-[11px] text-muted-foreground mb-1">Why entered</div>
+								<p class="text-xs whitespace-pre-wrap text-muted-foreground">{psychEntryReason ?? "—"}</p>
+							</div>
+							{#if t.status === "closed"}
+								<div>
+									<div class="text-[11px] text-muted-foreground mb-1">Why exited</div>
+									<p class="text-xs whitespace-pre-wrap text-muted-foreground">{psychExitReason ?? "—"}</p>
+								</div>
+							{/if}
 							<div>
 								<div class="text-[11px] text-muted-foreground mb-1">Emotional state</div>
 								{#if psychStates.length > 0}

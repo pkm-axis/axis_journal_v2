@@ -161,7 +161,7 @@
             </div>
         {/if} -->
 
-        <div class="px-4 pb-2 space-y-4">
+        <div class="px-4 pb-2 space-y-4 flex-1 overflow-y-auto">
             <div class="space-y-1.5">
                 <div class="text-xs font-medium">Name</div>
                 <Input bind:value={accountName} placeholder="e.g. Apex Account" class="rounded-md" />
@@ -177,11 +177,11 @@
                         <Select.Item value="prop firm" class="cursor-pointer">
                             Prop Firm
                         </Select.Item>
-                        <Select.Item value="live" class="cursor-pointer">
-                            Live
+                        <Select.Item value="live" class="cursor-pointer" disabled>
+                            Live (coming soon)
                         </Select.Item>
-                        <Select.Item value="crypto" class="cursor-pointer">
-                            Crypto
+                        <Select.Item value="crypto" class="cursor-pointer" disabled>
+                            Crypto (coming soon)
                         </Select.Item>
                     </Select.Content>
                 </Select.Root>
