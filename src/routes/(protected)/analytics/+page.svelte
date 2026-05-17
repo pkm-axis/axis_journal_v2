@@ -90,6 +90,17 @@
 		return buckets;
 	});
 
+	// By hour of day (opened_at, local hour)
+	const byHour = $derived.by(() => {
+		const buckets = Array.from({ length: 24 }, (_, h) => buildBucket(`${String(h).padStart(2, "0")}:00`));
+		for (const t of closedTrades) {
+			if (!t.opened_at) continue;
+			const h = new Date(t.opened_at).getHours();
+			feedBucket(buckets[h], num(t.pnl) ?? 0);
+		}
+		return buckets;
+	});
+
 	// By strategy (a trade can have multiple strategies — counts in each)
 	const byStrategy = $derived.by(() => {
 		const map = new Map<string, Bucket>();
@@ -368,6 +379,20 @@
 					{@render skeletonRows(7)}
 				{:else}
 					{@render bucketTable(byDayOfWeek.filter((b) => b.count > 0), "No closed trades yet.")}
+				{/if}
+			</div>
+		</section>
+
+		<section class="space-y-2">
+			<div>
+				<h2 class="text-lg font-semibold">By hour of day</h2>
+				<p class="text-xs text-muted-foreground">When you trade matters. Based on the local hour each trade was opened.</p>
+			</div>
+			<div class="rounded-md border bg-background">
+				{#if loading}
+					{@render skeletonRows(6)}
+				{:else}
+					{@render bucketTable(byHour.filter((b) => b.count > 0), "No closed trades yet.")}
 				{/if}
 			</div>
 		</section>

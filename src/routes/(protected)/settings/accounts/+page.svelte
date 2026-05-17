@@ -80,15 +80,18 @@
 		dialogOpen = true;
 	}
 
-	function numOrNull(v: string): number | null {
-		const t = v.trim();
+	function numOrNull(v: unknown): number | null {
+		if (v == null || v === "") return null;
+		if (typeof v === "number") return Number.isFinite(v) ? v : null;
+		const t = String(v).trim();
 		if (!t) return null;
 		const n = Number(t);
 		return Number.isFinite(n) ? n : null;
 	}
 
-	function strOrNull(v: string): string | null {
-		const t = v.trim();
+	function strOrNull(v: unknown): string | null {
+		if (v == null) return null;
+		const t = String(v).trim();
 		return t ? t : null;
 	}
 

@@ -20,7 +20,8 @@
 		RowsIcon,
 		ShareNetworkIcon,
 		SquaresFourIcon,
-		TrashIcon
+		TrashIcon,
+		WarningIcon
 	} from "phosphor-svelte";
 	import TradeCard from "$lib/components/trades/trade-card.svelte";
 	import * as Select from "$lib/components/ui/select/index.js";
@@ -394,6 +395,36 @@
 	const activeAccount = $derived(
 		accountStore.accounts.find((a) => a.id === accountStore.activeAccountId) ?? null
 	);
+
+	// Today's loss buffer (only relevant when prop firm with daily loss limit configured).
+	const dailyLossStatus = $derived.by(() => {
+		const limit = activeAccount?.prop_firm_daily_loss_limit ?? null;
+		if (!limit || limit <= 0) return null;
+		const start = new Date(); start.setHours(0, 0, 0, 0);
+		const startMs = start.getTime();
+		const endMs = startMs + 24 * 60 * 60 * 1000;
+		let todayPnl = 0;
+		for (const t of trades) {
+			if (t.status !== "closed" || !t.closed_at) continue;
+			const at = new Date(t.closed_at).getTime();
+			if (at < startMs || at >= endMs) continue;
+			const n = num(t.pnl);
+			if (n != null) todayPnl += n;
+		}
+		const lossUsed = todayPnl < 0 ? Math.abs(todayPnl) : 0;
+		const buffer = Math.max(0, limit - lossUsed);
+		const pct = Math.min(100, (lossUsed / limit) * 100);
+		const breached = lossUsed >= limit;
+		const danger = pct >= 70 && !breached;
+		if (!breached && !danger) return null;
+		return { limit, todayPnl, lossUsed, buffer, pct, breached, danger };
+	});
+
+	function fmtUsdShort(v: number, sign = false) {
+		return new Intl.NumberFormat(undefined, {
+			style: "currency", currency: "USD", signDisplay: sign ? "exceptZero" : "auto", maximumFractionDigits: 0,
+		}).format(v);
+	}
 
 	const isFundedPropFirm = $derived(
 		activeAccount?.account_type === "prop firm" && !!activeAccount?.parent_account_id
@@ -795,6 +826,31 @@
 		{#if !loading && session && !accountStore.activeAccountId}
 			<div class="rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
 				Choose an account from the sidebar to load and create trades for that account.
+			</div>
+		{/if}
+
+		{#if dailyLossStatus}
+			<div class={[
+				"rounded-md border px-4 py-3 text-sm flex items-start gap-3",
+				dailyLossStatus.breached
+					? "border-rose-700/40 bg-rose-700/10 text-rose-700 dark:text-rose-400"
+					: "border-amber-600/40 bg-amber-600/10 text-amber-700 dark:text-amber-400",
+			]}>
+				<WarningIcon size={18} weight="fill" class="mt-0.5 shrink-0" />
+				<div class="min-w-0 flex-1">
+					<div class="font-medium">
+						{#if dailyLossStatus.breached}
+							Daily loss limit breached — stop trading for the day.
+						{:else}
+							Inside the daily loss danger zone ({Math.round(dailyLossStatus.pct)}% of limit used).
+						{/if}
+					</div>
+					<div class="text-xs opacity-90 mt-0.5">
+						Today: <span class="font-medium tabular-nums">{fmtUsdShort(dailyLossStatus.todayPnl, true)}</span>
+						· Limit: <span class="tabular-nums">{fmtUsdShort(dailyLossStatus.limit)}</span>
+						· Buffer left: <span class="font-medium tabular-nums">{fmtUsdShort(dailyLossStatus.buffer)}</span>
+					</div>
+				</div>
 			</div>
 		{/if}
 
