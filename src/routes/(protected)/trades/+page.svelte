@@ -514,7 +514,11 @@
 	$effect(() => {
 		const suggested = suggestedClosedPnl;
 		if (suggested == null) return;
-		const shouldSync = formPnl === "" || formPnl === lastAutoPnl;
+		// Sync if blank, untouched auto value, or a leftover "0" from when the trade was open.
+		const shouldSync =
+			formPnl === "" ||
+			formPnl === lastAutoPnl ||
+			(lastAutoPnl == null && num(formPnl) === 0);
 		if (shouldSync) {
 			formPnl = suggested;
 			lastAutoPnl = suggested;
