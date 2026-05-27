@@ -8,6 +8,7 @@
 	import { PencilSimpleIcon, PlusIcon, TrashIcon } from "phosphor-svelte";
 	import { supabase } from "$lib/supabase/client";
 	import { instrumentStore, pointValue, type Instrument } from "$lib/stores/instruments.svelte";
+	import { confirm } from "$lib/components/ui/confirm-dialog";
 	import { toast } from "svelte-sonner";
 
 	const MARKET_TYPES = ["futures", "forex", "stocks", "crypto", "options", "other"];
@@ -23,6 +24,7 @@
 	let formTickValue = $state("12.5");
 	let formBaseCurrency = $state("USD");
 	let formQuoteCurrency = $state("USD");
+	let formCommissionPerSide = $state("0");
 	let saving = $state(false);
 
 	function reset() {
@@ -34,7 +36,7 @@
 		formTickValue = "12.5";
 		formBaseCurrency = "USD";
 		formQuoteCurrency = "USD";
-
+		formCommissionPerSide = "0";
 	}
 
 	function openCreate() {
@@ -53,6 +55,7 @@
 		formTickValue = String(i.tick_value ?? 0);
 		formBaseCurrency = i.base_currency ?? "USD";
 		formQuoteCurrency = i.quote_currency ?? "USD";
+		formCommissionPerSide = String(i.commission_per_side ?? 0);
 
 		dialogOpen = true;
 	}
@@ -73,6 +76,7 @@
 				contract_size: Number(formContractSize),
 				tick_size: Number(formTickSize),
 				tick_value: Number(formTickValue),
+				commission_per_side: Number(formCommissionPerSide) || 0,
 			};
 			if (editingId) {
 				await instrumentStore.updateInstrument(supabase, editingId, payload);
@@ -90,7 +94,11 @@
 	}
 
 	async function remove(i: Instrument) {
-		const ok = confirm(`Delete "${i.symbol}"? This cannot be undone.`);
+		const ok = await confirm({
+			title: `Delete "${i.symbol}"?`,
+			description: "This cannot be undone.",
+			destructive: true,
+		});
 		if (!ok) return;
 		try {
 			await instrumentStore.deleteInstrument(supabase, i.id);
@@ -160,6 +168,7 @@
 							<th class="whitespace-nowrap">Tick value</th>
 							<th class="whitespace-nowrap">Contract</th>
 							<th class="whitespace-nowrap">$/point</th>
+							<th class="whitespace-nowrap">Comm./side</th>
 							<th class="w-20"></th>
 						</tr>
 					</thead>
@@ -173,6 +182,7 @@
 								<td class="text-xs tabular-nums">${fmtNum(i.tick_value, 4)}</td>
 								<td class="text-xs tabular-nums">{fmtNum(i.contract_size, 4)}</td>
 								<td class="text-xs tabular-nums">${fmtNum(pointValue(i), 2)}</td>
+								<td class="text-xs tabular-nums">${fmtNum(i.commission_per_side ?? 0, 4)}</td>
 								<td class="text-right whitespace-nowrap">
 									<Button variant="ghost" size="icon" class="h-8 w-8 cursor-pointer" aria-label="Edit" onclick={() => openEdit(i)}>
 										<PencilSimpleIcon size={16} class="text-muted-foreground" />
@@ -253,6 +263,15 @@
 					<div class="text-xs font-medium">Quote currency</div>
 					<Input bind:value={formQuoteCurrency} placeholder="USD" class="rounded-md" />
 				</div>
+			</div>
+
+			<div class="space-y-1.5">
+				<div class="text-xs font-medium">Commission per side ($/contract)</div>
+				<Input bind:value={formCommissionPerSide} inputmode="decimal" placeholder="0.91" class="rounded-md" />
+				<p class="text-[11px] text-muted-foreground">
+					Charged on entry and on exit. E.g. MNQ/MES $0.91, MGC $1.06. Round-turn =
+					<span class="tabular-nums font-medium">${fmtNum((Number(formCommissionPerSide) || 0) * 2, 4)}/contract</span>.
+				</p>
 			</div>
 
 			<div class="rounded-md border bg-muted/30 px-3 py-2 text-xs">

@@ -3,9 +3,14 @@ import { json } from '@sveltejs/kit'
 export async function GET({ url, locals: { supabase, safeGetSession } }) {
     const { session, user } = await safeGetSession();
     const accountId = url.searchParams.get("accountId");
+    const sessionId = url.searchParams.get("sessionId");
 
     if (!session || !user) {
         return json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    if (!accountId && !sessionId) {
+        return json({ success: false, message: "accountId or sessionId required" }, { status: 400 });
     }
 
     const page     = Math.max(1, parseInt(url.searchParams.get("page")     ?? "1",  10));
@@ -22,8 +27,13 @@ export async function GET({ url, locals: { supabase, safeGetSession } }) {
         .from("trades")
         .select("*, trade_strategies(strategy_id), trade_mistakes(mistake_id), trade_checklist_responses(item_id), trade_psychology(emotional_states, confidence, mental_state, followed_plan, entry_reason, exit_reason)", { count: "exact" })
         .eq("user_id", user.id)
-        .eq("account_id", accountId)
         .order("opened_at", { ascending: false });
+
+    if (sessionId) {
+        query = query.eq("backtest_session_id", sessionId);
+    } else {
+        query = query.eq("account_id", accountId).is("backtest_session_id", null);
+    }
 
     if (search)         query = query.ilike("symbol", `%${search}%`);
     if (side !== "all") query = query.eq("side", side);

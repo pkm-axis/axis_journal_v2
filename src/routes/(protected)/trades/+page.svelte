@@ -12,6 +12,7 @@
 		ChartLineDownIcon,
 		ChartLineUpIcon,
 		EyeIcon,
+		FlaskIcon,
 		FunnelIcon,
 		MagnifyingGlassIcon,
 		PencilSimpleIcon,
@@ -39,6 +40,7 @@
 	import { MultiSelect } from "$lib/components/ui/multi-select";
 	import { Skeleton } from "$lib/components/ui/skeleton";
 	import PnlShareDialog from "$lib/components/pnl-share-sheet/pnl-share-dialog.svelte";
+	import { confirm } from "$lib/components/ui/confirm-dialog";
 	import { toast } from "svelte-sonner";
 
 	interface TradeRow {
@@ -73,6 +75,7 @@
 		entry_reason?: string | null;
 		exit_reason?: string | null;
 		screenshot_url?: string | null;
+		is_backtest?: boolean;
 	}
 
 	type SideFilter = "all" | "long" | "short";
@@ -105,7 +108,12 @@
 
 	async function deleteTrade() {
 		if (!editingTradeId) return;
-		if (!confirm("Delete this trade? This cannot be undone.")) return;
+		const ok = await confirm({
+			title: "Delete this trade?",
+			description: "This cannot be undone.",
+			destructive: true,
+		});
+		if (!ok) return;
 		deleting = true;
 		try {
 			await tradeStore.deleteTrade(supabase, editingTradeId);
@@ -448,6 +456,22 @@
 		return riskRewardRatio(e, sl, tp, formSide);
 	});
 
+    /** Per-contract per-side commission on the selected instrument (0 if none set). */
+    const commissionPerSide = $derived(
+        selectedInstrument?.commission_per_side != null
+            ? Number(selectedInstrument.commission_per_side) || 0
+            : 0
+    );
+
+    /** Entry-side and (if closed) exit-side commission in account currency. */
+    const commissionBreakdown = $derived.by(() => {
+        const qty = num(formQuantity) ?? 0;
+        const perSide = commissionPerSide * qty;
+        const entry = perSide;
+        const exit = formStatus === "closed" ? perSide : 0;
+        return { perSide, entry, exit, total: entry + exit };
+    });
+
 	const suggestedClosedPnl = $derived.by((): string | null => {
         if (formStatus !== "closed") return null;
 
@@ -455,7 +479,8 @@
         const exit = num(formExitPrice);
         const qty = num(formQuantity);
         if (entry == null || exit == null || qty == null) return null;
-        return instrumentPnl(selectedInstrument, formSide, entry, exit, qty).toFixed(2);
+        const gross = instrumentPnl(selectedInstrument, formSide, entry, exit, qty);
+        return (gross - commissionBreakdown.total).toFixed(2);
     });
 
     /** Stop price implied by a desired dollar risk, snapped to tick size. */
@@ -617,9 +642,11 @@
 			if (missing.length > 0) {
 				const preview = missing.slice(0, 5).map((i) => `• ${i.label}`).join("\n");
 				const extra = missing.length > 5 ? `\n• …and ${missing.length - 5} more` : "";
-				const ok = confirm(
-					`You haven't ticked ${missing.length} of ${checklistStore.items.length} checklist item${missing.length === 1 ? "" : "s"}:\n\n${preview}${extra}\n\nSave the trade anyway?`
-				);
+				const ok = await confirm({
+					title: `Skip ${missing.length} of ${checklistStore.items.length} checklist item${missing.length === 1 ? "" : "s"}?`,
+					description: `Not ticked:\n${preview}${extra}\n\nSave the trade anyway?`,
+					confirmLabel: "Save anyway",
+				});
 				if (!ok) return;
 			}
 		}
@@ -651,6 +678,7 @@
 					take_profit: takeProfit,
 					risk: dollarRisk,
 					pnl: formStatus === "closed" ? (num(formPnl) ?? 0) : 0,
+					commission: commissionBreakdown.total,
 					opened_at: openedAtIso,
 					closed_at: closedAtIso,
 					notes: formNotes.trim() || null,
@@ -679,6 +707,7 @@
 					take_profit: takeProfit,
 					risk: dollarRisk,
 					pnl: formStatus === "closed" ? (num(formPnl) ?? 0) : 0,
+					commission: commissionBreakdown.total,
 					opened_at: openedAtIso,
 					closed_at: closedAtIso,
 					notes: formNotes.trim() || undefined,
@@ -706,6 +735,7 @@
 							take_profit: takeProfit,
 							risk: dollarRisk,
 							pnl: formStatus === "closed" ? (num(formPnl) ?? 0) : 0,
+							commission: commissionBreakdown.total,
 							opened_at: openedAtIso,
 							closed_at: closedAtIso ?? undefined,
 							screenshot_url: screenshotUrl
@@ -1200,7 +1230,16 @@
 								{@const side = normalizeSide(t.side)}
 								{@const pnl = num(t.pnl)}
 								<tr class="[&>td]:px-4 [&>td]:py-3 hover:bg-muted/30">
-									<td class="font-medium whitespace-nowrap text-xs">{t.symbol}</td>
+									<td class="font-medium whitespace-nowrap text-xs">
+										<div class="inline-flex items-center gap-1.5">
+											<span>{t.symbol}</span>
+											{#if t.is_backtest}
+												<span class="inline-flex items-center gap-0.5 rounded-md bg-indigo-700/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-indigo-700 dark:text-indigo-400" title="Backtest trade">
+													<FlaskIcon size={10} /> BT
+												</span>
+											{/if}
+										</div>
+									</td>
 									<td class="whitespace-nowrap text-xs">
 										{#if side === "long"}
 											<span class="inline-flex items-center gap-1 rounded-md bg-emerald-700/10 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
@@ -1564,13 +1603,38 @@
 						</div>
 					{/if}
 
+					{#if commissionPerSide > 0}
+						<div class="rounded-md border bg-muted/20 px-3 py-2 text-xs space-y-1">
+							<div class="flex items-center justify-between gap-2">
+								<span class="text-muted-foreground">Commission</span>
+								<span class="text-[11px] text-muted-foreground tabular-nums">
+									${commissionPerSide.toFixed(4)}/side × {num(formQuantity) ?? 0}
+								</span>
+							</div>
+							<div class="flex items-center justify-between gap-2 tabular-nums">
+								<span>Entry</span>
+								<span class="text-rose-700 dark:text-rose-400">−{formatUsd(commissionBreakdown.entry)}</span>
+							</div>
+							{#if formStatus === "closed"}
+								<div class="flex items-center justify-between gap-2 tabular-nums">
+									<span>Exit</span>
+									<span class="text-rose-700 dark:text-rose-400">−{formatUsd(commissionBreakdown.exit)}</span>
+								</div>
+							{/if}
+							<div class="flex items-center justify-between gap-2 border-t pt-1 mt-1 tabular-nums font-medium">
+								<span>Total deducted</span>
+								<span class="text-rose-700 dark:text-rose-400">−{formatUsd(commissionBreakdown.total)}</span>
+							</div>
+						</div>
+					{/if}
+
 					{#if formStatus === "closed"}
 						<div class="space-y-1.5">
-							<div class="text-xs font-medium">P&amp;L</div>
+							<div class="text-xs font-medium">Net P&amp;L</div>
 							<Input bind:value={formPnl} inputmode="decimal" placeholder="Optional" class="rounded-md" />
 							<p class="text-[11px] text-muted-foreground leading-snug">
-								Auto-calculated from entry, exit, quantity, and instrument. Edit if you
-								need a different number (fees, scaling, partials).
+								Auto-calculated as gross P&amp;L minus round-turn commission. Edit if you need
+								a different number (scaling, partials, manual fees).
 							</p>
 						</div>
 					{/if}
@@ -1902,6 +1966,11 @@
 							>
 								{t.status}
 							</span>
+							{#if t.is_backtest}
+								<span class="inline-flex items-center gap-1 rounded-md bg-indigo-700/10 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:text-indigo-400">
+									<FlaskIcon size={12} /> Backtest
+								</span>
+							{/if}
 						</Sheet.Title>
 						<Sheet.Description>Trade details</Sheet.Description>
 					</Sheet.Header>

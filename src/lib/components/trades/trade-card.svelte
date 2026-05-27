@@ -4,6 +4,7 @@
 	import {
 		ChartLineDownIcon,
 		ChartLineUpIcon,
+		FlaskIcon,
 		PencilSimpleIcon,
 		ShareNetworkIcon
 	} from "phosphor-svelte";
@@ -35,6 +36,7 @@
 		updated_at: string;
 		strategy_ids?: string[];
 		mistake_ids?: string[];
+		is_backtest?: boolean;
 	}
 
 	interface Strategy { id: string; name: string }
@@ -152,6 +154,11 @@
 	<div class="flex items-center justify-between px-4 pt-4 pb-3">
 		<div class="flex items-center gap-2">
 			<span class="text-base font-semibold">{trade.symbol}</span>
+			{#if trade.is_backtest}
+				<span class="inline-flex items-center gap-0.5 rounded-md bg-indigo-700/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-indigo-700 dark:text-indigo-400" title="Backtest trade">
+					<FlaskIcon size={10} /> BT
+				</span>
+			{/if}
 			{#if side === "long"}
 				<span class="inline-flex items-center gap-1 rounded-md bg-emerald-700/10 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
 					<ChartLineUpIcon size={11} /> Long

@@ -33,6 +33,12 @@ export const PATCH: RequestHandler = async ({ params, request, locals: { supabas
 		if (!Number.isFinite(n) || n <= 0) return json({ success: false, message: "Tick value must be > 0" }, { status: 400 });
 		patch.tick_value = n;
 	}
+	if ("commission_per_side" in body) {
+		const raw = body.commission_per_side;
+		const n = raw == null || raw === "" ? 0 : Number(raw);
+		if (!Number.isFinite(n) || n < 0) return json({ success: false, message: "Commission must be >= 0" }, { status: 400 });
+		patch.commission_per_side = n;
+	}
 	if (typeof body.is_active === "boolean") patch.is_active = body.is_active;
 
 	if (Object.keys(patch).length === 0) {

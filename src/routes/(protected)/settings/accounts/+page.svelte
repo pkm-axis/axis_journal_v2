@@ -7,6 +7,7 @@
 	import { PencilSimpleIcon, PlusIcon, TrashIcon, LockSimpleIcon, ArrowCounterClockwiseIcon } from "phosphor-svelte";
 	import { supabase } from "$lib/supabase/client";
 	import { accountStore, type Account } from "$lib/stores/accounts.svelte";
+	import { confirm } from "$lib/components/ui/confirm-dialog";
 	import { toast } from "svelte-sonner";
 
 	const ACCOUNT_TYPES = ["live", "demo", "prop firm", "paper"];
@@ -136,7 +137,12 @@
 	}
 
 	async function reset(a: Account) {
-		const ok = confirm(`Reset "${a.name}"? All trades and payouts will be permanently deleted, but the account will remain.`);
+		const ok = await confirm({
+			title: `Reset "${a.name}"?`,
+			description: "All trades and payouts will be permanently deleted, but the account will remain.",
+			confirmLabel: "Reset",
+			destructive: true,
+		});
 		if (!ok) return;
 		try {
 			const res = await fetch(`/api/accounts/${a.id}/reset`, { method: "POST" });
@@ -149,7 +155,11 @@
 	}
 
 	async function remove(a: Account) {
-		const ok = confirm(`Delete "${a.name}"? All trades on this account will also be deleted.`);
+		const ok = await confirm({
+			title: `Delete "${a.name}"?`,
+			description: "All trades on this account will also be deleted.",
+			destructive: true,
+		});
 		if (!ok) return;
 		try {
 			await accountStore.deleteAccount(supabase, a.id);
@@ -298,34 +308,43 @@
 			</Dialog.Description>
 		</Dialog.Header>
 
-		<div class="space-y-4">
-			<div class="space-y-1.5">
-				<div class="text-xs font-medium">Name</div>
-				<Input bind:value={formName} placeholder="e.g. Apex 50K, Live IB" class="rounded-md" />
-			</div>
-			<div class="grid grid-cols-2 gap-3">
-				<div class="space-y-1.5">
-					<div class="text-xs font-medium">Type</div>
-					<Select.Root type="single" bind:value={formType}>
-						<Select.Trigger class="w-full rounded-md cursor-pointer">
-							<span class="capitalize">{formType}</span>
-						</Select.Trigger>
-						<Select.Content class="rounded-md">
-							{#each ACCOUNT_TYPES as t}
-								<Select.Item value={t} class="cursor-pointer capitalize">{t}</Select.Item>
-							{/each}
-						</Select.Content>
-					</Select.Root>
+		<div class="space-y-5">
+			<!-- Basics -->
+			<section class="space-y-3">
+				<div class="flex items-baseline justify-between">
+					<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Basics</h3>
 				</div>
-				<div class="space-y-1.5">
-					<div class="text-xs font-medium">Starting balance</div>
-					<Input bind:value={formStartingBalance} type="number" inputmode="decimal" placeholder="50000" class="rounded-md" />
+				<div class="space-y-3">
+					<div class="space-y-1.5">
+						<div class="text-xs font-medium">Name</div>
+						<Input bind:value={formName} placeholder="e.g. Apex 50K, Live IB" class="rounded-md" />
+					</div>
+					<div class="grid grid-cols-2 gap-3">
+						<div class="space-y-1.5">
+							<div class="text-xs font-medium">Type</div>
+							<Select.Root type="single" bind:value={formType}>
+								<Select.Trigger class="w-full rounded-md cursor-pointer">
+									<span class="capitalize">{formType}</span>
+								</Select.Trigger>
+								<Select.Content class="rounded-md">
+									{#each ACCOUNT_TYPES as t}
+										<Select.Item value={t} class="cursor-pointer capitalize">{t}</Select.Item>
+									{/each}
+								</Select.Content>
+							</Select.Root>
+						</div>
+						<div class="space-y-1.5">
+							<div class="text-xs font-medium">Starting balance</div>
+							<Input bind:value={formStartingBalance} type="number" inputmode="decimal" placeholder="50000" class="rounded-md" />
+						</div>
+					</div>
 				</div>
-			</div>
+			</section>
 
 			{#if isPropFirm}
-				<div class="rounded-md border bg-muted/20 p-3 space-y-3">
-					<div class="text-xs font-medium text-muted-foreground">Prop firm rules</div>
+				<!-- Firm identity -->
+				<section class="space-y-3 border-t pt-4">
+					<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Firm</h3>
 					<div class="grid grid-cols-2 gap-3">
 						<div class="space-y-1.5">
 							<div class="text-xs font-medium">Firm name</div>
@@ -336,6 +355,11 @@
 							<Input bind:value={formPropFirmType} placeholder="e.g. Eval, Funded" class="rounded-md" />
 						</div>
 					</div>
+				</section>
+
+				<!-- Trading rules -->
+				<section class="space-y-3 border-t pt-4">
+					<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Trading rules</h3>
 					<div class="grid grid-cols-2 gap-3">
 						<div class="space-y-1.5">
 							<div class="text-xs font-medium">{isFunded ? "Min. payout threshold ($)" : "Profit target ($)"}</div>
@@ -348,8 +372,6 @@
 							<div class="text-xs font-medium">Max drawdown ($)</div>
 							<Input bind:value={formMaxDrawdown} type="number" inputmode="decimal" placeholder="2500" class="rounded-md" />
 						</div>
-					</div>
-					<div class="grid grid-cols-2 gap-3">
 						<div class="space-y-1.5">
 							<div class="text-xs font-medium">Daily loss limit ($)</div>
 							<Input bind:value={formDailyLossLimit} type="number" inputmode="decimal" placeholder="1500" class="rounded-md" />
@@ -364,23 +386,28 @@
 						<Input bind:value={formConsistencyRule} placeholder="e.g. 30% (best day max share of total profit)" class="rounded-md" />
 						<p class="text-[11px] text-muted-foreground">Enter the cap as a percentage (e.g. 30% or 0.3). Leave blank if not applicable.</p>
 					</div>
+				</section>
+
+				<!-- Cost / payout -->
+				<section class="space-y-3 border-t pt-4">
+					<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+						{isFunded ? "Payout" : "Cost"}
+					</h3>
 					{#if !isFunded}
 						<div class="space-y-1.5">
 							<div class="text-xs font-medium">Challenge cost ($)</div>
 							<Input bind:value={formChallengeCost} type="number" inputmode="decimal" placeholder="e.g. 149" class="rounded-md" />
 							<p class="text-[11px] text-muted-foreground">What you paid for this evaluation. Used to calculate ROI and break-even.</p>
 						</div>
-					{/if}
-					{#if isFunded}
+					{:else}
 						<div class="space-y-1.5">
 							<div class="text-xs font-medium">Profit split (%)</div>
 							<Input bind:value={formProfitSplit} type="number" inputmode="decimal" placeholder="e.g. 80" class="rounded-md" />
 							<p class="text-[11px] text-muted-foreground">Your share of profits on payouts (e.g. 80 for an 80/20 split).</p>
 						</div>
 					{/if}
-				</div>
+				</section>
 			{/if}
-
 		</div>
 
 		<Dialog.Footer>

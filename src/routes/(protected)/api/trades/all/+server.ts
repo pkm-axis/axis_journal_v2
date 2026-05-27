@@ -1,16 +1,23 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 
-export const GET: RequestHandler = async ({ locals: { supabase, safeGetSession } }) => {
+export const GET: RequestHandler = async ({ url, locals: { supabase, safeGetSession } }) => {
 	const { session, user } = await safeGetSession();
 	if (!session || !user) return json({ success: false, message: "Unauthorized" }, { status: 401 });
 
-	const { data, error } = await supabase
+	const backtest = url.searchParams.get("backtest") ?? "live";
+
+	let query = supabase
 		.schema("trading")
 		.from("trades")
-		.select("id, symbol, side, status, pnl, opened_at, account_id, trade_strategies(strategy_id), trade_mistakes(mistake_id)")
+		.select("id, symbol, side, status, pnl, opened_at, account_id, is_backtest, trade_strategies(strategy_id), trade_mistakes(mistake_id)")
 		.eq("user_id", user.id)
 		.order("opened_at", { ascending: false });
+
+	if (backtest === "live")     query = query.eq("is_backtest", false);
+	if (backtest === "backtest") query = query.eq("is_backtest", true);
+
+	const { data, error } = await query;
 
 	if (error) return json({ success: false, message: error.message }, { status: 400 });
 

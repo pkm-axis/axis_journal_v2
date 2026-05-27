@@ -13,6 +13,7 @@ const updatableKeys = [
 	"take_profit",
 	"risk",
 	"pnl",
+	"commission",
 	"opened_at",
 	"closed_at",
 	"notes",

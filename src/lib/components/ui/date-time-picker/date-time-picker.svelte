@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { CalendarDate, type DateValue } from "@internationalized/date";
-	import { CalendarIcon } from "phosphor-svelte";
+	import { CalendarIcon, XIcon } from "phosphor-svelte";
 	import { Button } from "$lib/components/ui/button";
 	import { Calendar } from "$lib/components/ui/calendar";
 	import { Input } from "$lib/components/ui/input";
@@ -14,6 +14,8 @@
 		placeholder?: string;
 		class?: string;
 		clearable?: boolean;
+		/** Hide the time input; emit YYYY-MM-DDT00:00. */
+		dateOnly?: boolean;
 	};
 
 	let {
@@ -21,7 +23,8 @@
 		onValueChange,
 		placeholder = "Pick a date",
 		class: className,
-		clearable = false
+		clearable = false,
+		dateOnly = false
 	}: Props = $props();
 
 	function parseDatePart(v: string | null): CalendarDate | undefined {
@@ -35,7 +38,9 @@
 	function parseTimePart(v: string | null): string {
 		if (!v) return "09:00";
 		const [, time] = v.split("T");
-		return time?.slice(0, 5) ?? "09:00";
+		if (!time) return "09:00";
+		const [h, m] = time.split(":");
+		return h && m ? `${h}:${m}` : "09:00";
 	}
 
 	const dateValue = $derived(parseDatePart(value));
@@ -44,7 +49,8 @@
 	function combine(date: DateValue | undefined, time: string) {
 		if (!date) return null;
 		const pad = (n: number) => String(n).padStart(2, "0");
-		const t = time && /^\d{2}:\d{2}$/.test(time) ? time : "00:00";
+		const match = time && time.match(/^(\d{2}):(\d{2})/);
+		const t = match ? `${match[1]}:${match[2]}` : "00:00";
 		return `${date.year}-${pad(date.month)}-${pad(date.day)}T${t}`;
 	}
 
@@ -95,21 +101,23 @@
 			/>
 		</Popover.Content>
 	</Popover.Root>
-	<Input
-		type="time"
-		value={timeValue}
-		oninput={handleTimeChange}
-		class="w-[120px] rounded-md bg-background appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
-		step="1"
-	/>
+	{#if !dateOnly}
+		<Input
+			type="time"
+			value={timeValue}
+			onchange={handleTimeChange}
+			class="w-[120px] rounded-md bg-background appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
+		/>
+	{/if}
 	{#if clearable && value}
 		<Button
 			variant="ghost"
-			size="sm"
-			class="rounded-md cursor-pointer text-muted-foreground"
+			size="icon"
+			class="h-9 w-9 shrink-0 rounded-md cursor-pointer text-muted-foreground"
+			aria-label="Clear"
 			onclick={() => onValueChange(null)}
 		>
-			Clear
+			<XIcon size={14} />
 		</Button>
 	{/if}
 </div>

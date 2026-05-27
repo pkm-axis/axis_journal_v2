@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { confirm } from "$lib/components/ui/confirm-dialog";
 	import HeaderNavbar from "$lib/components/layout/header-navbar.svelte";
 	import * as Breadcrumb from "$lib/components/ui/breadcrumb/index.js";
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
@@ -85,7 +86,12 @@
 	}
 
 	async function removeChecklistItem(item: ChecklistItem) {
-		if (!confirm(`Delete "${item.label}"? Any past trade ticks for this item will be removed.`)) return;
+		const ok = await confirm({
+			title: `Delete "${item.label}"?`,
+			description: "Any past trade ticks for this item will be removed.",
+			destructive: true,
+		});
+		if (!ok) return;
 		try {
 			await checklistStore.deleteItem(supabase, item.id);
 			toast.success(`"${item.label}" deleted.`);
@@ -182,7 +188,12 @@
 	}
 
 	async function remove(k: Kind, item: Item) {
-		if (!confirm(`Delete "${item.name}"? This will also unlink it from any trades.`)) return;
+		const ok = await confirm({
+			title: `Delete "${item.name}"?`,
+			description: "This will also unlink it from any trades.",
+			destructive: true,
+		});
+		if (!ok) return;
 		try {
 			if (k === "strategy") await strategyStore.deleteStrategy(supabase, item.id);
 			else await mistakeStore.deleteMistake(supabase, item.id);

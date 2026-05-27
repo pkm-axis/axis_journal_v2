@@ -11,6 +11,7 @@ export interface Instrument {
     contract_size: number;
     tick_size: number;
     tick_value: number;
+    commission_per_side: number;
     expiry_date: string;
     max_leverage: number;
     is_active: boolean;

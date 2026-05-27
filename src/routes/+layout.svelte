@@ -2,6 +2,7 @@
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import { Toaster } from '$lib/components/ui/sonner';
+	import { ConfirmDialog } from '$lib/components/ui/confirm-dialog';
 
 	let { children } = $props();
 </script>
@@ -9,3 +10,4 @@
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
 {@render children()}
 <Toaster richColors position="bottom-right" />
+<ConfirmDialog />

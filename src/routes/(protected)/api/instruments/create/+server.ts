@@ -18,6 +18,9 @@ export const POST: RequestHandler = async ({ request, locals: { supabase, safeGe
 	const contract_size = Number(body.contract_size);
 	const tick_size = Number(body.tick_size);
 	const tick_value = Number(body.tick_value);
+	const commission_per_side = body.commission_per_side == null || body.commission_per_side === ""
+		? 0
+		: Number(body.commission_per_side);
 
 	if (!symbol) return json({ success: false, message: "Symbol is required" }, { status: 400 });
 	if (!Number.isFinite(contract_size) || contract_size <= 0)
@@ -26,6 +29,8 @@ export const POST: RequestHandler = async ({ request, locals: { supabase, safeGe
 		return json({ success: false, message: "Tick size must be > 0" }, { status: 400 });
 	if (!Number.isFinite(tick_value) || tick_value <= 0)
 		return json({ success: false, message: "Tick value must be > 0" }, { status: 400 });
+	if (!Number.isFinite(commission_per_side) || commission_per_side < 0)
+		return json({ success: false, message: "Commission must be >= 0" }, { status: 400 });
 
 	const insert = {
 		user_id: user.id,
@@ -37,6 +42,7 @@ export const POST: RequestHandler = async ({ request, locals: { supabase, safeGe
 		contract_size,
 		tick_size,
 		tick_value,
+		commission_per_side,
 		is_active: true,
 	};
 

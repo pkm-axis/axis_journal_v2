@@ -11,6 +11,7 @@ export async function POST({ request, locals: { supabase, safeGetSession } }) {
 
     const {
         account_id,
+        backtest_session_id,
         instrument_id,
         symbol,
         side,
@@ -22,6 +23,7 @@ export async function POST({ request, locals: { supabase, safeGetSession } }) {
         take_profit,
         risk,
         pnl,
+        commission,
         opened_at,
         closed_at,
         notes,
@@ -36,13 +38,18 @@ export async function POST({ request, locals: { supabase, safeGetSession } }) {
         checklist_item_ids
     } = body;
 
+    if (!account_id === !backtest_session_id) {
+        return json({ success: false, message: "Trade must belong to exactly one of account or backtest session." }, { status: 400 });
+    }
+
     const { data, error } = await supabase
         .schema('trading')
         .from('trades')
         .insert([
             {
                 user_id: user.id,
-                account_id,
+                account_id: account_id ?? null,
+                backtest_session_id: backtest_session_id ?? null,
                 instrument_id,
                 symbol,
                 side,
@@ -54,6 +61,7 @@ export async function POST({ request, locals: { supabase, safeGetSession } }) {
                 take_profit,
                 risk,
                 pnl,
+                commission: commission ?? 0,
                 opened_at,
                 closed_at,
                 notes

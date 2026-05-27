@@ -7,7 +7,8 @@ type TradeStatus = "open" | "closed";
 
 /** Fields required to create a trade (POST /api/trades/create). */
 export type TradeCreatePayload = {
-    account_id: string;
+    account_id?: string | null;
+    backtest_session_id?: string | null;
     instrument_id: string | null;
     symbol: string;
     side: TradeSide;
@@ -19,6 +20,7 @@ export type TradeCreatePayload = {
     take_profit: number;
     risk: number;
     pnl: number;
+    commission?: number;
     opened_at: string;
     closed_at?: string | null;
     notes?: string;
@@ -49,6 +51,7 @@ export interface Trade {
     take_profit: string | number | null;
     risk: string | number | null;
     pnl: string | number | null;
+    commission: string | number | null;
     r_multiple: string | number | null;
     opened_at: string;
     closed_at: string | null;
@@ -62,6 +65,8 @@ export interface Trade {
     exit_reason: string | null;
     created_at: string;
     updated_at: string;
+    is_backtest: boolean;
+    backtest_session_id: string | null;
     strategy_ids?: string[];
     mistake_ids?: string[];
     checklist_item_ids?: string[];
@@ -80,6 +85,7 @@ export type TradeUpdatePayload = {
     take_profit: number;
     risk: number;
     pnl: number;
+    commission?: number;
     opened_at: string;
     closed_at?: string | null;
     notes?: string | null;
@@ -101,6 +107,7 @@ export type TradeFilters = {
     search?: string;
     side?: "long" | "short" | "all";
     status?: "open" | "closed" | "all";
+    sessionId?: string | null;
 };
 
 function createTradeStore() {
@@ -113,14 +120,18 @@ function createTradeStore() {
 
     async function getTradesByAccount(supabase: SupabaseClient, filters: TradeFilters = lastFilters) {
         lastFilters = filters;
-        const accountId = accountStore.activeAccountId;
-        if (!accountId) {
-            trades = [];
-            total = 0;
-            return;
+        const params = new URLSearchParams();
+        if (filters.sessionId) {
+            params.set("sessionId", filters.sessionId);
+        } else {
+            const accountId = accountStore.activeAccountId;
+            if (!accountId) {
+                trades = [];
+                total = 0;
+                return;
+            }
+            params.set("accountId", accountId);
         }
-
-        const params = new URLSearchParams({ accountId });
         params.set("page",     String(filters.page     ?? 1));
         params.set("pageSize", String(filters.pageSize ?? 10));
         if (filters.search)                params.set("search", filters.search);

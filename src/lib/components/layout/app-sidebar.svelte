@@ -88,6 +88,10 @@
                         title: "Risk-to-Reward Planner",
                         url: "/tools/rr-planner",
                     },
+					{
+						title: "Backtesting",
+						url: "/tools/backtesting",
+					},
 				],
 			},
 			{

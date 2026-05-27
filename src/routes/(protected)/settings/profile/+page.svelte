@@ -4,6 +4,7 @@
 	import { goto } from "$app/navigation";
 	import { Button } from "$lib/components/ui/button";
 	import { Input } from "$lib/components/ui/input";
+	import { confirm } from "$lib/components/ui/confirm-dialog";
 	import { supabase } from "$lib/supabase/client";
 
 	let user = $state<User | null>(null);
@@ -80,12 +81,31 @@
 	}
 
 	async function deleteAccount() {
-		deleteMsg = {
-			kind: "err",
-			text:
-				"Account deletion needs a server-admin endpoint that doesn't exist yet. " +
-				"Use the Data page to wipe your trades, or contact support to fully remove your auth user.",
-		};
+		deleteMsg = null;
+		const ok = await confirm({
+			title: "Permanently delete your account?",
+			description:
+				"This removes every trade, account, strategy, mistake, instrument, payout, and your login itself. There is no undo.",
+			confirmLabel: "Delete account",
+			destructive: true,
+		});
+		if (!ok) return;
+		deleting = true;
+		try {
+			const { data: { session: s } } = await supabase.auth.getSession();
+			const res = await fetch("/api/profile/delete", {
+				method: "DELETE",
+				credentials: "include",
+				headers: s?.access_token ? { Authorization: `Bearer ${s.access_token}` } : {},
+			});
+			const body = await res.json();
+			if (!body.success) throw new Error(body.message ?? "Failed to delete account.");
+			await supabase.auth.signOut();
+			await goto("/login", { replaceState: true });
+		} catch (e) {
+			deleteMsg = { kind: "err", text: e instanceof Error ? e.message : "Failed to delete account." };
+			deleting = false;
+		}
 	}
 </script>
 
