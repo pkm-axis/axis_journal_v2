@@ -24,7 +24,6 @@
 					{#if helpContent}
 						<Button variant="outline" size="sm" onclick={() => helpOpen = true}><QuestionMark />Help</Button>
 					{/if}
-					<Button variant="outline" size="sm"><Book />Docs</Button>
 					<Button
 						variant="outline"
 						size="icon"
