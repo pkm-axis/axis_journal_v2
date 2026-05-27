@@ -1,42 +1,44 @@
-# sv
+# Axis Journal
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+A trading journal for futures traders. Logs more than just P&L — the context, psychology, and rules around every trade — so the patterns that actually affect your edge become visible.
 
-## Creating a project
+## Why
 
-If you're seeing this, you've probably already done this step. Congrats!
+Most journals stop at "wins and losses". Axis tracks the *why* — the strategy you used, the mistake you made, what you were feeling, whether you followed your plan — and ties it back to per-instrument P&L math (tick value, commissions, R-multiple) so your numbers stay honest.
 
-```sh
-# create a new project
-npx sv create my-app
-```
+Built for prop-firm traders too: drawdown, daily loss limits, consistency rules, and challenge ROI are first-class concepts, not afterthoughts.
 
-To recreate this project with the same configuration:
+## Tech stack
 
-```sh
-# recreate this project
-npx sv@0.13.0 create --template minimal --types ts --add prettier eslint tailwindcss="plugins:typography" sveltekit-adapter="adapter:vercel" drizzle="database:postgresql+postgresql:postgres.js+docker:yes" --install npm axis-journal-v2
-```
+- [SvelteKit](https://kit.svelte.dev/) + Svelte 5 runes
+- [Supabase](https://supabase.com/) — Postgres, Auth, RLS, Storage
+- [shadcn-svelte](https://www.shadcn-svelte.com/) + Tailwind CSS
+- TypeScript end-to-end
 
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+## Development
 
 ```sh
+npm install
 npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
 ```
 
-## Building
+Requires a Supabase project. Copy `.env.example` to `.env` and fill in:
 
-To create a production version of your app:
+```
+PUBLIC_SUPABASE_URL=...
+PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+```
+
+Run the migrations under `supabase/migrations/` against your Supabase project, then `npm run dev`.
+
+### Build
 
 ```sh
 npm run build
+npm run preview
 ```
 
-You can preview the production build with `npm run preview`.
+## Releases
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+See the [releases page](../../releases) for the full changelog and feature list.
