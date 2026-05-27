@@ -10,10 +10,13 @@ export interface Instrument {
     quote_currency: string;
     tick_size: number;
     tick_value: number;
+    /** Effective for the current user: their override if set, else 0. */
     commission_per_side: number;
-    expiry_date: string;
-    max_leverage: number;
+    /** Effective for the current user. */
     is_active: boolean;
+    /** True when this user has set a custom override row. */
+    has_override: boolean;
+    expiry_date: string | null;
     created_at: string;
 }
 
@@ -52,16 +55,13 @@ function createInstrumentStore() {
             try {
                 loading = true;
                 const token = await getAuthToken(supabase);
-                const response = await fetch(
-                    `/api/instruments`, 
-                    {
-                        credentials: "include",
-                        headers: {
-                            "Content-Type": "application/json",
-                            "Authorization": `Bearer ${token}`
-                        }
-                    }
-                );
+                const response = await fetch(`/api/instruments`, {
+                    credentials: "include",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                    },
+                });
 
                 const result = await response.json();
 
@@ -70,25 +70,18 @@ function createInstrumentStore() {
                 }
 
                 instruments = result.data as Instrument[];
-            } catch(e) {
-                console.error("Error getting instruments", e)
+            } catch (e) {
+                console.error("Error getting instruments", e);
             } finally {
                 loading = false;
             }
         },
-        createInstrument: async (supabase: SupabaseClient, payload: Partial<Instrument>) => {
-            const token = await getAuthToken(supabase);
-            const response = await fetch(`/api/instruments/create`, {
-                method: "POST",
-                credentials: "include",
-                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                body: JSON.stringify(payload),
-            });
-            const result = await response.json();
-            if (!result.success) throw new Error(result.message ?? "Failed to create instrument");
-            await instrumentStore.getInstruments(supabase);
-        },
-        updateInstrument: async (supabase: SupabaseClient, id: string, payload: Partial<Instrument>) => {
+        /** Upsert the current user's override (commission, is_active) for a catalog instrument. */
+        updateInstrument: async (
+            supabase: SupabaseClient,
+            id: string,
+            payload: { commission_per_side?: number; is_active?: boolean }
+        ) => {
             const token = await getAuthToken(supabase);
             const response = await fetch(`/api/instruments/${encodeURIComponent(id)}`, {
                 method: "PATCH",
@@ -98,17 +91,6 @@ function createInstrumentStore() {
             });
             const result = await response.json();
             if (!result.success) throw new Error(result.message ?? "Failed to update instrument");
-            await instrumentStore.getInstruments(supabase);
-        },
-        deleteInstrument: async (supabase: SupabaseClient, id: string) => {
-            const token = await getAuthToken(supabase);
-            const response = await fetch(`/api/instruments/${encodeURIComponent(id)}`, {
-                method: "DELETE",
-                credentials: "include",
-                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            });
-            const result = await response.json();
-            if (!result.success) throw new Error(result.message ?? "Failed to delete instrument");
             await instrumentStore.getInstruments(supabase);
         },
     };

@@ -130,21 +130,35 @@ const dAgo = (d: number, h = 9, m = 30) =>
 	new Date(Date.now() - d * 86_400_000 + (h * 60 + m) * 60_000).toISOString();
 
 async function seedInstruments(supabase: SupabaseClient, uid: string) {
-	await supabase.schema("trading").from("instruments").delete().eq("user_id", uid);
-	const rows = INSTRUMENT_SEEDS.map((s) => ({
-		user_id: uid,
-		symbol: s.symbol,
-		exchange: s.exchange,
-		market_type: "futures" as const,
-		base_currency: "USD",
-		quote_currency: "USD",
-		tick_size: s.tick_size,
-		tick_value: s.tick_value,
-		commission_per_side: s.commission_per_side,
-		is_active: true,
-	}));
-	const { error } = await supabase.schema("trading").from("instruments").insert(rows);
-	if (error) throw new Error("Instruments: " + error.message);
+	// The catalog is global and managed via migrations. Here we only reset the
+	// user's commission overrides to our suggested defaults.
+	const { data: catalog, error: catErr } = await supabase
+		.schema("trading")
+		.from("instruments")
+		.select("id, symbol");
+	if (catErr) throw new Error("Instruments catalog: " + catErr.message);
+
+	const bySymbol = new Map((catalog ?? []).map((r) => [r.symbol as string, r.id as string]));
+
+	await supabase.schema("trading").from("user_instruments").delete().eq("user_id", uid);
+
+	const rows = INSTRUMENT_SEEDS
+		.map((s) => {
+			const id = bySymbol.get(s.symbol);
+			if (!id) return null;
+			return {
+				user_id: uid,
+				instrument_id: id,
+				commission_per_side: s.commission_per_side,
+				is_active: true,
+			};
+		})
+		.filter((r): r is NonNullable<typeof r> => r !== null);
+
+	if (rows.length > 0) {
+		const { error } = await supabase.schema("trading").from("user_instruments").insert(rows);
+		if (error) throw new Error("Instrument overrides: " + error.message);
+	}
 	return rows.length;
 }
 
@@ -249,8 +263,7 @@ async function seedTrades(supabase: SupabaseClient, uid: string) {
 	const { data: instruments } = await supabase
 		.schema("trading")
 		.from("instruments")
-		.select("id, symbol")
-		.eq("user_id", uid);
+		.select("id, symbol");
 
 	const accountIds: Record<TradeSeed["account"], string | undefined> = {
 		apex_eval: accounts?.find((a) => a.name === "Apex 50K — Evaluation")?.id,

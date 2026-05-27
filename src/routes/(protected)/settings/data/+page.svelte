@@ -15,9 +15,9 @@
 	const SCOPES: { id: Scope; label: string; describe: string; wipes: string }[] = [
 		{
 			id: "instruments",
-			label: "Instruments",
-			describe: "10 futures contracts: NQ, ES, MNQ, MES, GC, MGC, CL, MCL, SI, SIL — with realistic tick values and commissions.",
-			wipes: "Replaces all instruments on your account.",
+			label: "Instrument commissions",
+			describe: "Suggested commission per side for the 10 seeded futures (NQ, ES, MNQ, MES, GC, MGC, CL, MCL, SI, SIL). The catalog itself is global; this only sets your per-side fee.",
+			wipes: "Replaces your existing commission overrides.",
 		},
 		{
 			id: "playbook",
