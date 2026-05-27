@@ -18,11 +18,6 @@ export const PATCH: RequestHandler = async ({ params, request, locals: { supabas
 	if (typeof body.market_type === "string") patch.market_type = body.market_type.trim();
 	if (typeof body.base_currency === "string") patch.base_currency = body.base_currency.trim();
 	if (typeof body.quote_currency === "string") patch.quote_currency = body.quote_currency.trim();
-	if ("contract_size" in body) {
-		const n = Number(body.contract_size);
-		if (!Number.isFinite(n) || n <= 0) return json({ success: false, message: "Contract size must be > 0" }, { status: 400 });
-		patch.contract_size = n;
-	}
 	if ("tick_size" in body) {
 		const n = Number(body.tick_size);
 		if (!Number.isFinite(n) || n <= 0) return json({ success: false, message: "Tick size must be > 0" }, { status: 400 });

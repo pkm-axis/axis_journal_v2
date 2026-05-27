@@ -19,7 +19,6 @@
 	let formSymbol = $state("");
 	let formExchange = $state("");
 	let formMarketType = $state("futures");
-	let formContractSize = $state("1");
 	let formTickSize = $state("0.25");
 	let formTickValue = $state("12.5");
 	let formBaseCurrency = $state("USD");
@@ -31,7 +30,6 @@
 		formSymbol = "";
 		formExchange = "";
 		formMarketType = "futures";
-		formContractSize = "1";
 		formTickSize = "0.25";
 		formTickValue = "12.5";
 		formBaseCurrency = "USD";
@@ -50,7 +48,6 @@
 		formSymbol = i.symbol;
 		formExchange = i.exchange ?? "";
 		formMarketType = i.market_type ?? "futures";
-		formContractSize = String(i.contract_size ?? 1);
 		formTickSize = String(i.tick_size ?? 0);
 		formTickValue = String(i.tick_value ?? 0);
 		formBaseCurrency = i.base_currency ?? "USD";
@@ -73,7 +70,6 @@
 				market_type: formMarketType,
 				base_currency: formBaseCurrency.trim().toUpperCase(),
 				quote_currency: formQuoteCurrency.trim().toUpperCase(),
-				contract_size: Number(formContractSize),
 				tick_size: Number(formTickSize),
 				tick_value: Number(formTickValue),
 				commission_per_side: Number(formCommissionPerSide) || 0,
@@ -122,9 +118,8 @@
 	const previewPv = $derived.by(() => {
 		const ts = Number(formTickSize);
 		const tv = Number(formTickValue);
-		const cs = Number(formContractSize);
-		if (!Number.isFinite(ts) || ts <= 0 || !Number.isFinite(tv) || !Number.isFinite(cs)) return null;
-		return (tv / ts) * (cs || 1);
+		if (!Number.isFinite(ts) || ts <= 0 || !Number.isFinite(tv)) return null;
+		return tv / ts;
 	});
 </script>
 
@@ -166,7 +161,6 @@
 							<th class="whitespace-nowrap">Type</th>
 							<th class="whitespace-nowrap">Tick size</th>
 							<th class="whitespace-nowrap">Tick value</th>
-							<th class="whitespace-nowrap">Contract</th>
 							<th class="whitespace-nowrap">$/point</th>
 							<th class="whitespace-nowrap">Comm./side</th>
 							<th class="w-20"></th>
@@ -180,7 +174,6 @@
 								<td class="text-xs text-muted-foreground capitalize">{i.market_type}</td>
 								<td class="text-xs tabular-nums">{fmtNum(i.tick_size, 6)}</td>
 								<td class="text-xs tabular-nums">${fmtNum(i.tick_value, 4)}</td>
-								<td class="text-xs tabular-nums">{fmtNum(i.contract_size, 4)}</td>
 								<td class="text-xs tabular-nums">${fmtNum(pointValue(i), 2)}</td>
 								<td class="text-xs tabular-nums">${fmtNum(i.commission_per_side ?? 0, 4)}</td>
 								<td class="text-right whitespace-nowrap">
@@ -239,7 +232,7 @@
 				</Select.Root>
 			</div>
 
-			<div class="grid grid-cols-3 gap-3">
+			<div class="grid grid-cols-2 gap-3">
 				<div class="space-y-1.5">
 					<div class="text-xs font-medium">Tick size</div>
 					<Input bind:value={formTickSize} inputmode="decimal" placeholder="0.25" class="rounded-md" />
@@ -247,10 +240,6 @@
 				<div class="space-y-1.5">
 					<div class="text-xs font-medium">Tick value ($)</div>
 					<Input bind:value={formTickValue} inputmode="decimal" placeholder="12.5" class="rounded-md" />
-				</div>
-				<div class="space-y-1.5">
-					<div class="text-xs font-medium">Contract size</div>
-					<Input bind:value={formContractSize} inputmode="decimal" placeholder="1" class="rounded-md" />
 				</div>
 			</div>
 

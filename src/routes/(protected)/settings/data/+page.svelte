@@ -10,28 +10,75 @@
 	import { getAuthToken } from "$lib/utils/auth-token";
 	import { toast } from "svelte-sonner";
 
+	type Scope = "instruments" | "playbook" | "accounts" | "trades";
+
+	const SCOPES: { id: Scope; label: string; describe: string; wipes: string }[] = [
+		{
+			id: "instruments",
+			label: "Instruments",
+			describe: "10 futures contracts: NQ, ES, MNQ, MES, GC, MGC, CL, MCL, SI, SIL — with realistic tick values and commissions.",
+			wipes: "Replaces all instruments on your account.",
+		},
+		{
+			id: "playbook",
+			label: "Playbook",
+			describe: "4 strategies (Trend Following, Breakout, Mean Reversion, Opening Range Breakout) and 4 common mistakes.",
+			wipes: "Replaces all strategies and mistakes.",
+		},
+		{
+			id: "accounts",
+			label: "Accounts + sample payout",
+			describe: "Apex 50K Evaluation (cost $137), Apex 50K Funded (graduated, 80/20 split), Topstep 150K Evaluation. Includes one $1,800 payout.",
+			wipes: "Replaces all accounts — also deletes their trades and payouts.",
+		},
+		{
+			id: "trades",
+			label: "Sample trades",
+			describe: "~49 trades over 120 days across the 3 prop firm accounts. Mix of wins, losses, mistakes, and 2 open positions.",
+			wipes: "Replaces all trades. Requires Instruments and Accounts to exist (seed those at the same time if you haven't).",
+		},
+	];
+
+	let selected = $state<Record<Scope, boolean>>({
+		instruments: true,
+		playbook: true,
+		accounts: true,
+		trades: true,
+	});
 	let confirmText = $state("");
 	let wiping = $state(false);
 	let seeding = $state(false);
 
+	const selectedScopes = $derived(SCOPES.filter((s) => selected[s.id]).map((s) => s.id));
+
 	async function seed() {
+		if (selectedScopes.length === 0) {
+			toast.error("Pick at least one category to seed.");
+			return;
+		}
 		seeding = true;
 		try {
 			const token = await getAuthToken(supabase);
 			const res = await fetch("/api/data/seed", {
 				method: "POST",
 				credentials: "include",
-				headers: { Authorization: `Bearer ${token}` },
+				headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+				body: JSON.stringify({ scopes: selectedScopes }),
 			});
 			const result = await res.json();
 			if (!result.success) throw new Error(result.message ?? "Seed failed.");
-			await Promise.all([
-				accountStore.getAllAccounts(supabase),
-				instrumentStore.getInstruments(supabase),
-				strategyStore.getStrategies(supabase),
-				mistakeStore.getMistakes(supabase),
-			]);
-			await tradeStore.getTradesByAccount(supabase);
+
+			const refreshes: Promise<unknown>[] = [];
+			if (selected.accounts) refreshes.push(accountStore.getAllAccounts(supabase));
+			if (selected.instruments) refreshes.push(instrumentStore.getInstruments(supabase));
+			if (selected.playbook) {
+				refreshes.push(strategyStore.getStrategies(supabase));
+				refreshes.push(mistakeStore.getMistakes(supabase));
+			}
+			await Promise.all(refreshes);
+			if (selected.trades || selected.accounts) {
+				await tradeStore.getTradesByAccount(supabase);
+			}
 			toast.success(result.message);
 		} catch (e) {
 			toast.error(e instanceof Error ? e.message : "Seed failed.");
@@ -72,29 +119,61 @@
 		<div>
 			<h2 class="text-lg font-semibold">Seed demo data</h2>
 			<p class="text-xs text-muted-foreground">
-				Populate your account with realistic sample data to explore the app. Creates two prop firm accounts
-				(evaluation + funded), 3 instruments, 4 strategies, 4 mistakes, 26 trades, and 1 payout.
+				Pick the categories you want to populate. Each runs independently — re-seeding one
+				doesn't touch the others.
 			</p>
 		</div>
 
 		<div class="rounded-md border bg-background p-4 space-y-3">
-			<ul class="text-xs text-muted-foreground space-y-1 list-disc list-inside">
-				<li>Instruments: NQ, ES, MNQ (CME futures)</li>
-				<li>Strategies: Trend Following, Breakout, Mean Reversion, Opening Range Breakout</li>
-				<li>Mistakes: Sized too large, Moved stop early, Revenge trade, Ignored invalidation</li>
-				<li>Accounts: Apex 50K Evaluation (cost $137) + Apex 50K Funded (graduated)</li>
-				<li>26 trades across the last 90 days with wins, losses, and 2 open positions</li>
-				<li>1 sample payout of $1,800 on the funded account</li>
-			</ul>
+			<div class="flex items-center justify-between gap-2 pb-2 border-b">
+				<div class="text-xs font-medium">Categories</div>
+				<div class="flex items-center gap-3 text-[11px]">
+					<button
+						type="button"
+						class="text-primary hover:underline cursor-pointer"
+						onclick={() => {
+							for (const s of SCOPES) selected[s.id] = true;
+						}}
+					>
+						Select all
+					</button>
+					<button
+						type="button"
+						class="text-muted-foreground hover:underline cursor-pointer"
+						onclick={() => {
+							for (const s of SCOPES) selected[s.id] = false;
+						}}
+					>
+						Clear
+					</button>
+				</div>
+			</div>
 
-<div class="flex justify-end">
+			<div class="space-y-2">
+				{#each SCOPES as s (s.id)}
+					<label class="flex items-start gap-3 rounded-md px-2 py-2 cursor-pointer hover:bg-muted/40">
+						<input
+							type="checkbox"
+							class="mt-0.5 h-4 w-4 cursor-pointer accent-primary"
+							bind:checked={selected[s.id]}
+						/>
+						<div class="min-w-0 flex-1 space-y-1">
+							<div class="text-sm font-medium">{s.label}</div>
+							<p class="text-[11px] text-muted-foreground leading-snug">{s.describe}</p>
+							<p class="text-[11px] text-amber-700 dark:text-amber-400 leading-snug">{s.wipes}</p>
+						</div>
+					</label>
+				{/each}
+			</div>
+
+			<div class="flex justify-end">
 				<Button
 					variant="outline"
 					class="rounded-md cursor-pointer"
-					disabled={seeding}
+					disabled={seeding || selectedScopes.length === 0}
 					onclick={seed}
 				>
-					{seeding ? "Seeding…" : "Seed demo data"}
+					{seeding ? "Seeding…" : `Seed ${selectedScopes.length} categor${selectedScopes.length === 1 ? "y" : "ies"}`}
 				</Button>
 			</div>
 		</div>

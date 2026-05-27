@@ -8,7 +8,6 @@ export interface Instrument {
     market_type: string;
     base_currency: string;
     quote_currency: string;
-    contract_size: number;
     tick_size: number;
     tick_value: number;
     commission_per_side: number;
@@ -20,7 +19,7 @@ export interface Instrument {
 
 /** Account-currency value of a 1.0 price move for one contract.
  *  tick_value already represents the per-contract dollar value per tick,
- *  so point value = tick_value / tick_size. contract_size is not used here. */
+ *  so point value = tick_value / tick_size. */
 export function pointValue(instr: Instrument | undefined | null): number {
     if (!instr) return 1;
     return instr.tick_value / instr.tick_size;
