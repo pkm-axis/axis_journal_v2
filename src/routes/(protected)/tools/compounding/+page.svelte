@@ -1,19 +1,144 @@
 <script lang="ts">
+	import { onMount } from "svelte";
 	import HeaderNavbar from "$lib/components/layout/header-navbar.svelte";
 	import * as Breadcrumb from "$lib/components/ui/breadcrumb/index.js";
+	import * as Select from "$lib/components/ui/select/index.js";
 	import { ScrollArea } from "$lib/components/ui/scroll-area";
 	import { Input } from "$lib/components/ui/input";
+	import { Button } from "$lib/components/ui/button";
+	import { supabase } from "$lib/supabase/client";
+	import { accountStore } from "$lib/stores/accounts.svelte";
+	import { getAuthToken } from "$lib/utils/auth-token";
+
+	type Mode = "manual" | "account";
+	type PeriodUnit = "day" | "week" | "month";
+
+	const PERIOD_DAYS: Record<PeriodUnit, number> = { day: 1, week: 7, month: 30 };
+	const PERIOD_LABELS: Record<PeriodUnit, { singular: string; plural: string }> = {
+		day: { singular: "day", plural: "days" },
+		week: { singular: "week", plural: "weeks" },
+		month: { singular: "month", plural: "months" },
+	};
+
+	let mode = $state<Mode>("manual");
+	let periodUnit = $state<PeriodUnit>("month");
+	let selectedAccountId = $state<string | null>(null);
+	let loadingTrades = $state(false);
+
+	type ClosedTrade = { pnl: number; opened_at: string };
+	let closedTrades = $state<ClosedTrade[]>([]);
 
 	let startBalance = $state("10000");
 	let returnPerTrade = $state("0.5"); // % per trade
 	let tradesPerPeriod = $state("20");
-	let periods = $state("12"); // e.g. months
+	let periods = $state("12");
 
 	function num(v: unknown): number | null {
 		if (v == null || v === "") return null;
 		const n = typeof v === "number" ? v : Number(v);
 		return Number.isFinite(n) ? n : null;
 	}
+
+	onMount(() => {
+		if (accountStore.accounts.length === 0) {
+			void accountStore.getAllAccounts(supabase);
+		}
+	});
+
+	const selectedAccount = $derived(
+		accountStore.accounts.find((a) => a.id === selectedAccountId) ?? null
+	);
+
+	async function loadAccountTrades(accountId: string) {
+		loadingTrades = true;
+		try {
+			const token = await getAuthToken(supabase);
+			const res = await fetch("/api/trades/all?backtest=live", {
+				credentials: "include",
+				headers: { Authorization: `Bearer ${token}` },
+			});
+			const result = await res.json();
+			if (!result.success) throw new Error(result.message ?? "Failed to load trades");
+			const all = (result.data as Array<{
+				account_id: string | null;
+				status: string;
+				pnl: string | number | null;
+				opened_at: string;
+			}>) ?? [];
+			closedTrades = all
+				.filter((t) => t.account_id === accountId && t.status === "closed")
+				.map((t) => ({ pnl: Number(t.pnl ?? 0), opened_at: t.opened_at }))
+				.filter((t) => Number.isFinite(t.pnl))
+				.sort((a, b) => new Date(a.opened_at).getTime() - new Date(b.opened_at).getTime());
+		} catch (e) {
+			console.error(e);
+			closedTrades = [];
+		} finally {
+			loadingTrades = false;
+		}
+	}
+
+	// When the selected account changes, refetch trades.
+	$effect(() => {
+		if (mode === "account" && selectedAccountId) {
+			void loadAccountTrades(selectedAccountId);
+		} else {
+			closedTrades = [];
+		}
+	});
+
+	/** Stats derived from the selected account's closed trades, scaled to the chosen period. */
+	const accountStats = $derived.by(() => {
+		if (mode !== "account" || !selectedAccount) return null;
+		const start = Number(selectedAccount.starting_balance ?? 0);
+		if (!Number.isFinite(start) || start <= 0) return null;
+		if (closedTrades.length === 0) return null;
+
+		// Running-balance % return per trade.
+		let bal = start;
+		const pcts: number[] = [];
+		for (const t of closedTrades) {
+			if (bal <= 0) break;
+			pcts.push((t.pnl / bal) * 100);
+			bal = bal + t.pnl;
+		}
+		const avgPctPerTrade = pcts.length > 0 ? pcts.reduce((a, b) => a + b, 0) / pcts.length : 0;
+
+		const first = new Date(closedTrades[0].opened_at).getTime();
+		const last = new Date(closedTrades[closedTrades.length - 1].opened_at).getTime();
+		const spanDays = Math.max(1, (last - first) / 86_400_000);
+
+		const tradesPer: Record<PeriodUnit, number> = {
+			day: closedTrades.length / Math.max(1, spanDays),
+			week: closedTrades.length / Math.max(1 / 7, spanDays / 7),
+			month: closedTrades.length / Math.max(1 / 30, spanDays / 30),
+		};
+
+		return {
+			startingBalance: start,
+			closedCount: closedTrades.length,
+			avgPctPerTrade,
+			tradesPer,
+			spanDays,
+		};
+	});
+
+	/** Auto-pick the period that most closely matches the data density. */
+	$effect(() => {
+		if (mode !== "account" || !accountStats) return;
+		const span = accountStats.spanDays;
+		const next: PeriodUnit = span < 7 ? "day" : span < 30 ? "week" : "month";
+		periodUnit = next;
+	});
+
+	/** Push computed account stats into the inputs (one-way sync). */
+	$effect(() => {
+		if (mode !== "account" || !accountStats) return;
+		startBalance = String(Math.round(accountStats.startingBalance));
+		returnPerTrade = accountStats.avgPctPerTrade.toFixed(3);
+		const t = accountStats.tradesPer[periodUnit];
+		tradesPerPeriod = Math.max(1, Math.round(t)).toString();
+	});
 
 	const projection = $derived.by(() => {
 		const start = num(startBalance);
@@ -59,6 +184,13 @@
 		if (v == null || !Number.isFinite(v)) return "—";
 		return `${v.toFixed(2)}%`;
 	}
+
+	function resetToDefaults() {
+		startBalance = "10000";
+		returnPerTrade = "0.5";
+		tradesPerPeriod = "20";
+		periods = "12";
+	}
 </script>
 
 <HeaderNavbar links={true} {helpContent}>
@@ -75,8 +207,8 @@
 	<div class="space-y-3 text-sm">
 		<p class="text-muted-foreground">The Compounding calculator projects how your account grows when you reinvest profits.</p>
 		<ul class="list-disc list-inside space-y-1 text-muted-foreground">
-			<li>Enter your starting balance, return per trade (%), trades per period, and number of periods.</li>
-			<li>The chart shows how the account balance grows over each period.</li>
+			<li>Manual mode: enter your own assumptions for balance, return per trade, frequency.</li>
+			<li>From account: pick one of your accounts and the inputs auto-populate from its closed trade history.</li>
 		</ul>
 	</div>
 {/snippet}
@@ -90,10 +222,100 @@
 			</p>
 		</div>
 
+		<!-- Mode toggle -->
+		<div class="rounded-md border bg-background p-4 space-y-3">
+			<div class="text-sm font-medium">Source</div>
+			<div class="flex flex-wrap gap-2">
+				<Button
+					variant={mode === "manual" ? "default" : "outline"}
+					size="sm"
+					class="rounded-md cursor-pointer"
+					onclick={() => {
+						mode = "manual";
+						resetToDefaults();
+					}}
+				>
+					Manual
+				</Button>
+				<Button
+					variant={mode === "account" ? "default" : "outline"}
+					size="sm"
+					class="rounded-md cursor-pointer"
+					onclick={() => (mode = "account")}
+				>
+					From account
+				</Button>
+			</div>
+
+			{#if mode === "account"}
+				<div class="space-y-1.5">
+					<div class="text-xs font-medium">Account</div>
+					<Select.Root type="single" bind:value={selectedAccountId as string | undefined}>
+						<Select.Trigger class="w-full rounded-md cursor-pointer">
+							<span>{selectedAccount?.name ?? "Pick an account"}</span>
+						</Select.Trigger>
+						<Select.Content class="rounded-md">
+							{#each accountStore.accounts as a (a.id)}
+								<Select.Item value={a.id} class="cursor-pointer">
+									<div class="flex flex-col">
+										<span>{a.name}</span>
+										<span class="text-[10px] text-muted-foreground capitalize">{a.account_type ?? ""}</span>
+									</div>
+								</Select.Item>
+							{/each}
+						</Select.Content>
+					</Select.Root>
+				</div>
+
+				{#if !selectedAccountId}
+					<p class="text-[11px] text-muted-foreground">Pick an account to pull starting balance, average per-trade return, and trade frequency from its closed trades.</p>
+				{:else if loadingTrades}
+					<p class="text-[11px] text-muted-foreground">Loading trades…</p>
+				{:else if !accountStats}
+					<div class="rounded-md border border-amber-600/40 bg-amber-600/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+						This account has no closed trades yet, so there's nothing to compound. Switch to <strong>Manual</strong>, or log some trades first.
+					</div>
+				{:else}
+					<div class="rounded-md border bg-muted/20 px-3 py-2 text-xs space-y-1">
+						<div class="flex justify-between gap-3">
+							<span class="text-muted-foreground">Closed trades</span>
+							<span class="tabular-nums font-medium">{accountStats.closedCount}</span>
+						</div>
+						<div class="flex justify-between gap-3">
+							<span class="text-muted-foreground">History span</span>
+							<span class="tabular-nums font-medium">{Math.round(accountStats.spanDays)} days</span>
+						</div>
+						<div class="flex justify-between gap-3">
+							<span class="text-muted-foreground">Avg trades / {PERIOD_LABELS[periodUnit].singular}</span>
+							<span class="tabular-nums font-medium">{accountStats.tradesPer[periodUnit].toFixed(1)}</span>
+						</div>
+						<div class="flex justify-between gap-3">
+							<span class="text-muted-foreground">Avg return / trade</span>
+							<span class={[
+								"tabular-nums font-medium",
+								accountStats.avgPctPerTrade > 0 && "text-emerald-700 dark:text-emerald-400",
+								accountStats.avgPctPerTrade < 0 && "text-rose-700 dark:text-rose-400",
+							]}>{fmtPct(accountStats.avgPctPerTrade)}</span>
+						</div>
+						{#if accountStats.tradesPer[periodUnit] < 1}
+							<div class="text-[11px] text-amber-700 dark:text-amber-400 pt-1">
+								Less than 1 trade per {PERIOD_LABELS[periodUnit].singular} on average — try a shorter period below for a more meaningful projection.
+							</div>
+						{/if}
+					</div>
+				{/if}
+			{/if}
+		</div>
+
 		<div class="grid gap-4 lg:grid-cols-[1fr_1fr]">
 			<!-- Inputs -->
 			<div class="rounded-md border bg-background p-4 space-y-4">
-				<div class="text-sm font-medium">Inputs</div>
+				<div class="flex items-center justify-between gap-2">
+					<div class="text-sm font-medium">Inputs</div>
+					{#if mode === "account" && accountStats}
+						<span class="text-[10px] text-muted-foreground">Editable — tweak any input to model a what-if.</span>
+					{/if}
+				</div>
 
 				<div class="space-y-1.5">
 					<div class="text-xs font-medium">Starting balance ($)</div>
@@ -108,18 +330,32 @@
 					</p>
 				</div>
 
+				<div class="space-y-1.5">
+					<div class="text-xs font-medium">Period</div>
+					<Select.Root type="single" bind:value={periodUnit as string | undefined}>
+						<Select.Trigger class="w-full rounded-md cursor-pointer">
+							<span class="capitalize">{PERIOD_LABELS[periodUnit].singular}</span>
+						</Select.Trigger>
+						<Select.Content class="rounded-md">
+							<Select.Item value="day" class="cursor-pointer">Day</Select.Item>
+							<Select.Item value="week" class="cursor-pointer">Week</Select.Item>
+							<Select.Item value="month" class="cursor-pointer">Month</Select.Item>
+						</Select.Content>
+					</Select.Root>
+				</div>
+
 				<div class="grid grid-cols-2 gap-3">
 					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Trades per period</div>
+						<div class="text-xs font-medium">Trades per {PERIOD_LABELS[periodUnit].singular}</div>
 						<Input bind:value={tradesPerPeriod} inputmode="decimal" placeholder="20" class="rounded-md" />
 					</div>
 					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Periods</div>
+						<div class="text-xs font-medium">{PERIOD_LABELS[periodUnit].plural[0].toUpperCase() + PERIOD_LABELS[periodUnit].plural.slice(1)} to project</div>
 						<Input bind:value={periods} inputmode="decimal" placeholder="12" class="rounded-md" />
 					</div>
 				</div>
 				<p class="text-[11px] text-muted-foreground -mt-2">
-					Periods are abstract — months, weeks, whatever you trade in. Capped at 240.
+					Capped at 240 {PERIOD_LABELS[periodUnit].plural}.
 				</p>
 			</div>
 
