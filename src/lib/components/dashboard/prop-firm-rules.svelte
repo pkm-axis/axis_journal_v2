@@ -140,15 +140,12 @@
 </script>
 
 <div class="rounded-md border bg-background">
-	<div class="flex items-start justify-between gap-3 border-b px-4 py-3">
-		<div>
-			<div class="flex items-center gap-2">
+	<div class="flex flex-col gap-2 border-b px-4 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+		<div class="min-w-0 space-y-1">
+			<div class="flex flex-col flex-wrap gap-x-2 gap-y-0.5">
 				<div class="text-sm font-medium">Prop firm rules</div>
-				{#if account.prop_firm_name}
-					<span class="text-xs text-muted-foreground">· {account.prop_firm_name}</span>
-				{/if}
-				{#if account.prop_firm_type}
-					<span class="text-xs text-muted-foreground capitalize">· {account.prop_firm_type}</span>
+				{#if account.prop_firm_name && account.prop_firm_type}
+					<p class="text-xs text-muted-foreground">{account.prop_firm_name} · {account.prop_firm_type}</p>
 				{/if}
 			</div>
 			<p class="text-xs text-muted-foreground">Live progress against this account's funding rules.</p>
@@ -157,14 +154,14 @@
 			<Button
 				size="sm"
 				variant="outline"
-				class="cursor-pointer rounded-md"
+				class="cursor-pointer rounded-md w-full sm:w-auto sm:shrink-0 justify-start sm:justify-center min-w-0"
 				onclick={onSwitchToGraduated}
 			>
-				<TrophyIcon size={14} weight="fill" class="text-emerald-700 dark:text-emerald-400" />
-				Graduated · open {graduatedTo.name}
+				<TrophyIcon size={14} weight="fill" class="text-emerald-700 dark:text-emerald-400 shrink-0" />
+				<span class="truncate">Graduated · open {graduatedTo.name}</span>
 			</Button>
 		{:else if showGraduate}
-			<Button size="sm" class="cursor-pointer rounded-md bg-emerald-700 hover:bg-emerald-800 text-white" onclick={onGraduate}>
+			<Button size="sm" class="cursor-pointer rounded-md bg-emerald-700 hover:bg-emerald-800 text-white w-full sm:w-auto sm:shrink-0" onclick={onGraduate}>
 				<TrophyIcon size={14} weight="fill" /> Graduate to funded
 			</Button>
 		{/if}

@@ -29,7 +29,11 @@
 			<Sidebar.MenuItem>
 				<Sidebar.MenuButton tooltipContent={item.name}>
 					{#snippet child({ props })}
-						<a href={item.url} {...props}>
+						<a
+							href={item.url}
+							{...props}
+							onclick={() => sidebar.isMobile && sidebar.setOpenMobile(false)}
+						>
 							<item.icon />
 							<span>{item.name}</span>
 						</a>

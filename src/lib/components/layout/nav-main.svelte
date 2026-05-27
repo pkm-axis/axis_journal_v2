@@ -1,6 +1,7 @@
 <script lang="ts">
 	import * as Collapsible from "$lib/components/ui/collapsible/index.js";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
+	import { useSidebar } from "$lib/components/ui/sidebar/index.js";
 	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
 
 	let {
@@ -19,6 +20,12 @@
 			}[];
 		}[];
 	} = $props();
+
+	const sidebar = useSidebar();
+
+	function closeOnMobile() {
+		if (sidebar.isMobile) sidebar.setOpenMobile(false);
+	}
 </script>
 
 <Sidebar.Group>
@@ -47,7 +54,7 @@
 									<Sidebar.MenuSubItem>
 										<Sidebar.MenuSubButton>
 											{#snippet child({ props })}
-												<a href={subItem.url} {...props}>
+												<a href={subItem.url} {...props} onclick={closeOnMobile}>
 													<span>{subItem.title}</span>
 												</a>
 											{/snippet}
