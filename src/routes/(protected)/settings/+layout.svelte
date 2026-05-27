@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { page } from "$app/state";
+	import { goto } from "$app/navigation";
 	import HeaderNavbar from "$lib/components/layout/header-navbar.svelte";
 	import * as Breadcrumb from "$lib/components/ui/breadcrumb/index.js";
+	import * as Select from "$lib/components/ui/select/index.js";
 	import { ScrollArea } from "$lib/components/ui/scroll-area";
 
 	let { children } = $props();
@@ -14,8 +16,11 @@
 		{ href: "/settings/data", label: "Data" },
 	];
 
+	const currentHref = $derived(
+		NAV.find((n) => page.url.pathname.startsWith(n.href))?.href ?? NAV[0].href
+	);
 	const currentLabel = $derived(
-		NAV.find((n) => page.url.pathname.startsWith(n.href))?.label ?? "Settings"
+		NAV.find((n) => n.href === currentHref)?.label ?? "Settings"
 	);
 </script>
 
@@ -49,10 +54,28 @@
 			<p class="text-sm text-muted-foreground">Manage your profile, accounts, and preferences.</p>
 		</div>
 
+		<!-- Mobile: dropdown selector -->
+		<div class="mb-6 md:hidden">
+			<Select.Root
+				type="single"
+				value={currentHref}
+				onValueChange={(v) => v && goto(v)}
+			>
+				<Select.Trigger class="w-full rounded-md cursor-pointer">
+					<span>{currentLabel}</span>
+				</Select.Trigger>
+				<Select.Content class="rounded-md">
+					{#each NAV as item (item.href)}
+						<Select.Item value={item.href} class="cursor-pointer">{item.label}</Select.Item>
+					{/each}
+				</Select.Content>
+			</Select.Root>
+		</div>
+
 		<div class="grid gap-6 md:grid-cols-[200px_1fr]">
-			<!-- Sub-nav -->
-			<nav class="space-y-1 text-sm">
-				{#each NAV as item}
+			<!-- Desktop sub-nav -->
+			<nav class="hidden space-y-1 text-sm md:block">
+				{#each NAV as item (item.href)}
 					{@const active = page.url.pathname.startsWith(item.href)}
 					<a
 						href={item.href}

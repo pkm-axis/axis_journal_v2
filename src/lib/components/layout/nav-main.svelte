@@ -1,7 +1,17 @@
+<script lang="ts" module>
+	/**
+	 * Module-level open state so the Tools/Settings/Overview collapsibles
+	 * remember their open/closed state across remounts (e.g. when the mobile
+	 * sidebar Sheet closes and reopens).
+	 */
+	const sectionOpen = $state<Record<string, boolean>>({});
+</script>
+
 <script lang="ts">
 	import * as Collapsible from "$lib/components/ui/collapsible/index.js";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import { useSidebar } from "$lib/components/ui/sidebar/index.js";
+	import { page } from "$app/state";
 	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
 
 	let {
@@ -23,6 +33,18 @@
 
 	const sidebar = useSidebar();
 
+	// Seed each section's open state on first encounter: open if marked active,
+	// or if the current route lives inside it. Manual toggles afterwards win.
+	$effect(() => {
+		for (const item of items) {
+			if (sectionOpen[item.title] !== undefined) continue;
+			const containsCurrentRoute = (item.items ?? []).some((s) =>
+				page.url.pathname.startsWith(s.url)
+			);
+			sectionOpen[item.title] = !!item.isActive || containsCurrentRoute;
+		}
+	});
+
 	function closeOnMobile() {
 		if (sidebar.isMobile) sidebar.setOpenMobile(false);
 	}
@@ -32,7 +54,10 @@
 	<Sidebar.GroupLabel>Platform</Sidebar.GroupLabel>
 	<Sidebar.Menu>
 		{#each items as item (item.title)}
-			<Collapsible.Root open={item.isActive} class="group/collapsible">
+			<Collapsible.Root
+				bind:open={() => sectionOpen[item.title] ?? false, (v) => (sectionOpen[item.title] = v)}
+				class="group/collapsible"
+			>
 				{#snippet child({ props })}
 					<Sidebar.MenuItem {...props}>
 						<Collapsible.Trigger>
