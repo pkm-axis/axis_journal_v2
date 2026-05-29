@@ -153,6 +153,12 @@
 		instrumentStore.instruments?.find((i) => i.symbol === formSymbol)
 	);
 
+	const sessionInstrument = $derived.by(() =>
+		sess?.instrument_id
+			? instrumentStore.instruments?.find((i) => i.id === sess.instrument_id)
+			: null
+	);
+
 	function priceMovePnl(from: number, to: number) {
 		const qty = num(formQuantity);
 		if (qty == null || !selectedInstrument) return null;
@@ -633,6 +639,8 @@
 							<Select.Item value={instrument.symbol} class="cursor-pointer">
 								{instrument.symbol}
 							</Select.Item>
+						{:else}
+							<div class="px-2 py-3 text-center text-xs text-muted-foreground">No instruments yet.</div>
 						{/each}
 					</Select.Content>
 				</Select.Root>
@@ -801,7 +809,7 @@
 				trades={trades}
 				strategies={strategyStore.strategies ?? []}
 				mistakes={mistakeStore.mistakes ?? []}
-				instrumentSymbol={selectedInstrument?.symbol ?? null}
+				instrumentSymbol={sessionInstrument?.symbol ?? null}
 			/>
 		</div>
 		<Dialog.Footer class="border-t px-5 py-3">

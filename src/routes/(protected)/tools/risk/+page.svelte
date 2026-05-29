@@ -163,6 +163,8 @@
 								<Select.Item value={instrument.symbol} class="cursor-pointer">
 									{instrument.symbol}
 								</Select.Item>
+							{:else}
+								<div class="px-2 py-3 text-center text-xs text-muted-foreground">No instruments yet.</div>
 							{/each}
 						</Select.Content>
 					</Select.Root>

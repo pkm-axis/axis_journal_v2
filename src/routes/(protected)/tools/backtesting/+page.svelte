@@ -354,6 +354,8 @@
 						<Select.Content class="rounded-md">
 							{#each instrumentStore.instruments ?? [] as i}
 								<Select.Item value={i.id} class="cursor-pointer">{i.symbol}</Select.Item>
+							{:else}
+								<div class="px-2 py-3 text-center text-xs text-muted-foreground">No instruments yet.</div>
 							{/each}
 						</Select.Content>
 					</Select.Root>

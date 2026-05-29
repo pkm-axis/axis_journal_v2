@@ -8,9 +8,10 @@
 	import { Button } from "$lib/components/ui/button";
 	import { supabase } from "$lib/supabase/client";
 	import { accountStore } from "$lib/stores/accounts.svelte";
+	import { backtestSessionStore } from "$lib/stores/backtest-sessions.svelte";
 	import { getAuthToken } from "$lib/utils/auth-token";
 
-	type Mode = "manual" | "account";
+	type Mode = "manual" | "account" | "session";
 	type PeriodUnit = "day" | "week" | "month";
 
 	const PERIOD_DAYS: Record<PeriodUnit, number> = { day: 1, week: 7, month: 30 };
@@ -23,6 +24,7 @@
 	let mode = $state<Mode>("manual");
 	let periodUnit = $state<PeriodUnit>("month");
 	let selectedAccountId = $state<string | null>(null);
+	let selectedSessionId = $state<string | null>(null);
 	let loadingTrades = $state(false);
 
 	type ClosedTrade = { pnl: number; opened_at: string };
@@ -43,10 +45,17 @@
 		if (accountStore.accounts.length === 0) {
 			void accountStore.getAllAccounts(supabase);
 		}
+		if (backtestSessionStore.sessions.length === 0) {
+			void backtestSessionStore.getAll(supabase);
+		}
 	});
 
 	const selectedAccount = $derived(
 		accountStore.accounts.find((a) => a.id === selectedAccountId) ?? null
+	);
+
+	const selectedSession = $derived(
+		backtestSessionStore.sessions.find((s) => s.id === selectedSessionId) ?? null
 	);
 
 	async function loadAccountTrades(accountId: string) {
@@ -78,19 +87,57 @@
 		}
 	}
 
-	// When the selected account changes, refetch trades.
+	async function loadSessionTrades(sessionId: string) {
+		loadingTrades = true;
+		try {
+			const token = await getAuthToken(supabase);
+			const res = await fetch(`/api/trades?sessionId=${encodeURIComponent(sessionId)}&pageSize=100`, {
+				credentials: "include",
+				headers: { Authorization: `Bearer ${token}` },
+			});
+			const result = await res.json();
+			if (!result.success) throw new Error(result.message ?? "Failed to load trades");
+			const all = (result.data as Array<{
+				status: string;
+				pnl: string | number | null;
+				opened_at: string;
+			}>) ?? [];
+			closedTrades = all
+				.filter((t) => t.status === "closed")
+				.map((t) => ({ pnl: Number(t.pnl ?? 0), opened_at: t.opened_at }))
+				.filter((t) => Number.isFinite(t.pnl))
+				.sort((a, b) => new Date(a.opened_at).getTime() - new Date(b.opened_at).getTime());
+		} catch (e) {
+			console.error(e);
+			closedTrades = [];
+		} finally {
+			loadingTrades = false;
+		}
+	}
+
+	// When the selected source changes, refetch trades.
 	$effect(() => {
 		if (mode === "account" && selectedAccountId) {
 			void loadAccountTrades(selectedAccountId);
+		} else if (mode === "session" && selectedSessionId) {
+			void loadSessionTrades(selectedSessionId);
 		} else {
 			closedTrades = [];
 		}
 	});
 
-	/** Stats derived from the selected account's closed trades, scaled to the chosen period. */
-	const accountStats = $derived.by(() => {
-		if (mode !== "account" || !selectedAccount) return null;
-		const start = Number(selectedAccount.starting_balance ?? 0);
+	const sourceStartingBalance = $derived.by(() => {
+		if (mode === "account") return Number(selectedAccount?.starting_balance ?? 0);
+		if (mode === "session") return Number(selectedSession?.starting_balance ?? 0);
+		return 0;
+	});
+
+	/** Stats derived from the selected source's closed trades, scaled to the chosen period. */
+	const sourceStats = $derived.by(() => {
+		if (mode === "manual") return null;
+		if (mode === "account" && !selectedAccount) return null;
+		if (mode === "session" && !selectedSession) return null;
+		const start = sourceStartingBalance;
 		if (!Number.isFinite(start) || start <= 0) return null;
 		if (closedTrades.length === 0) return null;
 
@@ -125,18 +172,18 @@
 
 	/** Auto-pick the period that most closely matches the data density. */
 	$effect(() => {
-		if (mode !== "account" || !accountStats) return;
-		const span = accountStats.spanDays;
+		if (mode === "manual" || !sourceStats) return;
+		const span = sourceStats.spanDays;
 		const next: PeriodUnit = span < 7 ? "day" : span < 30 ? "week" : "month";
 		periodUnit = next;
 	});
 
-	/** Push computed account stats into the inputs (one-way sync). */
+	/** Push computed source stats into the inputs (one-way sync). */
 	$effect(() => {
-		if (mode !== "account" || !accountStats) return;
-		startBalance = String(Math.round(accountStats.startingBalance));
-		returnPerTrade = accountStats.avgPctPerTrade.toFixed(3);
-		const t = accountStats.tradesPer[periodUnit];
+		if (mode === "manual" || !sourceStats) return;
+		startBalance = String(Math.round(sourceStats.startingBalance));
+		returnPerTrade = sourceStats.avgPctPerTrade.toFixed(3);
+		const t = sourceStats.tradesPer[periodUnit];
 		tradesPerPeriod = Math.max(1, Math.round(t)).toString();
 	});
 
@@ -209,6 +256,7 @@
 		<ul class="list-disc list-inside space-y-1 text-muted-foreground">
 			<li>Manual mode: enter your own assumptions for balance, return per trade, frequency.</li>
 			<li>From account: pick one of your accounts and the inputs auto-populate from its closed trade history.</li>
+			<li>From backtest session: pick a backtest session to project from its hypothetical closed trades.</li>
 		</ul>
 	</div>
 {/snippet}
@@ -245,6 +293,14 @@
 				>
 					From account
 				</Button>
+				<Button
+					variant={mode === "session" ? "default" : "outline"}
+					size="sm"
+					class="rounded-md cursor-pointer"
+					onclick={() => (mode = "session")}
+				>
+					From backtest session
+				</Button>
 			</div>
 
 			{#if mode === "account"}
@@ -262,42 +318,81 @@
 										<span class="text-[10px] text-muted-foreground capitalize">{a.account_type ?? ""}</span>
 									</div>
 								</Select.Item>
+							{:else}
+								<div class="px-2 py-3 text-center text-xs text-muted-foreground">No accounts yet.</div>
 							{/each}
 						</Select.Content>
 					</Select.Root>
 				</div>
+			{:else if mode === "session"}
+				<div class="space-y-1.5">
+					<div class="text-xs font-medium">Backtest session</div>
+					<Select.Root type="single" bind:value={selectedSessionId as string | undefined}>
+						<Select.Trigger class="w-full rounded-md cursor-pointer">
+							<span>{selectedSession?.name ?? "Pick a backtest session"}</span>
+						</Select.Trigger>
+						<Select.Content class="rounded-md">
+							{#each backtestSessionStore.sessions as s (s.id)}
+								<Select.Item value={s.id} class="cursor-pointer">
+									<div class="flex flex-col">
+										<span>{s.name}</span>
+										{#if s.starting_balance != null}
+											<span class="text-[10px] text-muted-foreground tabular-nums">
+												Start {fmtUsd(Number(s.starting_balance))}
+											</span>
+										{/if}
+									</div>
+								</Select.Item>
+							{:else}
+								<div class="px-2 py-3 text-center text-xs text-muted-foreground">No backtest sessions yet.</div>
+							{/each}
+						</Select.Content>
+					</Select.Root>
+				</div>
+			{/if}
 
-				{#if !selectedAccountId}
-					<p class="text-[11px] text-muted-foreground">Pick an account to pull starting balance, average per-trade return, and trade frequency from its closed trades.</p>
+			{#if mode === "account" || mode === "session"}
+				{@const picked = mode === "account" ? selectedAccountId : selectedSessionId}
+				{@const sourceName = mode === "account" ? "account" : "backtest session"}
+				{#if !picked}
+					<p class="text-[11px] text-muted-foreground">
+						Pick {mode === "account" ? "an account" : "a session"} to pull starting balance, average per-trade return, and trade frequency from its closed trades.
+					</p>
 				{:else if loadingTrades}
 					<p class="text-[11px] text-muted-foreground">Loading trades…</p>
-				{:else if !accountStats}
-					<div class="rounded-md border border-amber-600/40 bg-amber-600/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-						This account has no closed trades yet, so there's nothing to compound. Switch to <strong>Manual</strong>, or log some trades first.
-					</div>
+				{:else if !sourceStats}
+					{#if sourceStartingBalance <= 0}
+						<div class="rounded-md border border-amber-600/40 bg-amber-600/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+							This {sourceName} has no starting balance set, so there's nothing to compound from.
+						</div>
+					{:else}
+						<div class="rounded-md border border-amber-600/40 bg-amber-600/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+							This {sourceName} has no closed trades yet, so there's nothing to compound. Switch to <strong>Manual</strong>, or log some trades first.
+						</div>
+					{/if}
 				{:else}
 					<div class="rounded-md border bg-muted/20 px-3 py-2 text-xs space-y-1">
 						<div class="flex justify-between gap-3">
 							<span class="text-muted-foreground">Closed trades</span>
-							<span class="tabular-nums font-medium">{accountStats.closedCount}</span>
+							<span class="tabular-nums font-medium">{sourceStats.closedCount}</span>
 						</div>
 						<div class="flex justify-between gap-3">
 							<span class="text-muted-foreground">History span</span>
-							<span class="tabular-nums font-medium">{Math.round(accountStats.spanDays)} days</span>
+							<span class="tabular-nums font-medium">{sourceStats.spanDays.toFixed(1)} days</span>
 						</div>
 						<div class="flex justify-between gap-3">
 							<span class="text-muted-foreground">Avg trades / {PERIOD_LABELS[periodUnit].singular}</span>
-							<span class="tabular-nums font-medium">{accountStats.tradesPer[periodUnit].toFixed(1)}</span>
+							<span class="tabular-nums font-medium">{sourceStats.tradesPer[periodUnit].toFixed(1)}</span>
 						</div>
 						<div class="flex justify-between gap-3">
 							<span class="text-muted-foreground">Avg return / trade</span>
 							<span class={[
 								"tabular-nums font-medium",
-								accountStats.avgPctPerTrade > 0 && "text-emerald-700 dark:text-emerald-400",
-								accountStats.avgPctPerTrade < 0 && "text-rose-700 dark:text-rose-400",
-							]}>{fmtPct(accountStats.avgPctPerTrade)}</span>
+								sourceStats.avgPctPerTrade > 0 && "text-emerald-700 dark:text-emerald-400",
+								sourceStats.avgPctPerTrade < 0 && "text-rose-700 dark:text-rose-400",
+							]}>{fmtPct(sourceStats.avgPctPerTrade)}</span>
 						</div>
-						{#if accountStats.tradesPer[periodUnit] < 1}
+						{#if sourceStats.tradesPer[periodUnit] < 1}
 							<div class="text-[11px] text-amber-700 dark:text-amber-400 pt-1">
 								Less than 1 trade per {PERIOD_LABELS[periodUnit].singular} on average — try a shorter period below for a more meaningful projection.
 							</div>
@@ -312,7 +407,7 @@
 			<div class="rounded-md border bg-background p-4 space-y-4">
 				<div class="flex items-center justify-between gap-2">
 					<div class="text-sm font-medium">Inputs</div>
-					{#if mode === "account" && accountStats}
+					{#if mode !== "manual" && sourceStats}
 						<span class="text-[10px] text-muted-foreground">Editable — tweak any input to model a what-if.</span>
 					{/if}
 				</div>
