@@ -12,7 +12,7 @@
 		if (!open && s.resolve) confirmStore.respond(false);
 	}}
 >
-	<Dialog.Content class="sm:max-w-md">
+	<Dialog.Content class="sm:max-w-md z-60" overlayClass="z-[60]">
 		<Dialog.Header>
 			<Dialog.Title>{s.title}</Dialog.Title>
 			{#if s.description}

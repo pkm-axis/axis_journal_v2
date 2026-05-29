@@ -18,11 +18,13 @@
 		CaretUpIcon,
 		ChartLineDownIcon,
 		ChartLineUpIcon,
+		FileTextIcon,
 		FlaskIcon,
 		PencilSimpleIcon,
 		PlusIcon,
 		TrashIcon
 	} from "phosphor-svelte";
+	import SessionSummary from "./session-summary.svelte";
 	import { supabase } from "$lib/supabase/client";
 	import { backtestSessionStore } from "$lib/stores/backtest-sessions.svelte";
 	import { tradeStore } from "$lib/stores/trades.svelte";
@@ -58,6 +60,7 @@
 	const loadingTrades = $derived(tradeStore.loading);
 
 	let tradeSheetOpen = $state(false);
+	let summaryOpen = $state(false);
 	let editingTradeId = $state<string | null>(null);
 	let saving = $state(false);
 	let deleting = $state(false);
@@ -440,10 +443,16 @@
 					</p>
 				{/if}
 			</div>
-			<Button onclick={openCreate} class="cursor-pointer rounded-md">
-				<PlusIcon />
-				New trade
-			</Button>
+			<div class="flex flex-wrap items-center gap-2">
+				<Button variant="outline" onclick={() => (summaryOpen = true)} class="cursor-pointer rounded-md">
+					<FileTextIcon />
+					View summary
+				</Button>
+				<Button onclick={openCreate} class="cursor-pointer rounded-md">
+					<PlusIcon />
+					New trade
+				</Button>
+			</div>
 		</div>
 
 		<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -516,10 +525,6 @@
 				<div class="p-10 text-center">
 					<div class="text-sm font-medium">No trades in this session</div>
 					<div class="mt-1 text-sm text-muted-foreground">Log your first hypothetical trade.</div>
-					<Button onclick={openCreate} class="mt-4 cursor-pointer rounded-md">
-						<PlusIcon size={14} />
-						New trade
-					</Button>
 				</div>
 			{:else}
 				<div class="w-full overflow-x-auto">
@@ -778,6 +783,31 @@
 					</Button>
 				</div>
 			</div>
+		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>
+
+<Dialog.Root bind:open={summaryOpen}>
+	<Dialog.Content class="w-[min(100vw,960px)] sm:max-w-[960px] max-h-[90vh] flex flex-col p-0 gap-0">
+		<Dialog.Header class="px-5 pt-5 pb-3 border-b">
+			<Dialog.Title>Session summary</Dialog.Title>
+			<Dialog.Description>
+				Detailed report of trades, performance, and notes for this backtest.
+			</Dialog.Description>
+		</Dialog.Header>
+		<div class="flex-1 overflow-y-auto px-5 py-4">
+			<SessionSummary
+				session={sess}
+				trades={trades}
+				strategies={strategyStore.strategies ?? []}
+				mistakes={mistakeStore.mistakes ?? []}
+				instrumentSymbol={selectedInstrument?.symbol ?? null}
+			/>
+		</div>
+		<Dialog.Footer class="border-t px-5 py-3">
+			<Button variant="outline" class="rounded-md cursor-pointer" onclick={() => (summaryOpen = false)}>
+				Close
+			</Button>
 		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
