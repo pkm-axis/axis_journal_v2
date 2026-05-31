@@ -101,6 +101,35 @@ export type TradeUpdatePayload = {
     checklist_item_ids?: string[];
 };
 
+export interface TradeExecution {
+    id: string;
+    trade_id: string;
+    user_id: string;
+    kind: "entry" | "exit";
+    quantity: string | number;
+    price: string | number;
+    fees: string | number;
+    stop_loss: string | number | null;
+    take_profit: string | number | null;
+    executed_at: string;
+    reason: string | null;
+    notes: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export type TradeExecutionInput = {
+    kind: "entry" | "exit";
+    quantity: number;
+    price: number;
+    fees?: number;
+    stop_loss?: number | null;
+    take_profit?: number | null;
+    executed_at: string;
+    reason?: string | null;
+    notes?: string | null;
+};
+
 export type TradeFilters = {
     page?: number;
     pageSize?: number;
@@ -225,6 +254,42 @@ function createTradeStore() {
                 await getTradesByAccount(supabase);
             } catch (e) {
                 console.error("Error deleting trade:", e);
+                throw e;
+            }
+        },
+        listExecutions: async (supabase: SupabaseClient, tradeId: string): Promise<TradeExecution[]> => {
+            try {
+                const token = await getAuthToken(supabase);
+                const response = await fetch(`/api/trades/${encodeURIComponent(tradeId)}/executions`, {
+                    credentials: "include",
+                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                });
+                const result = await response.json();
+                if (!result.success) throw new Error(result.message ?? "Failed to load executions");
+                return (result.data ?? []) as TradeExecution[];
+            } catch (e) {
+                console.error("Error loading executions:", e);
+                throw e;
+            }
+        },
+        replaceExecutions: async (
+            supabase: SupabaseClient,
+            tradeId: string,
+            executions: TradeExecutionInput[]
+        ): Promise<TradeExecution[]> => {
+            try {
+                const token = await getAuthToken(supabase);
+                const response = await fetch(`/api/trades/${encodeURIComponent(tradeId)}/executions`, {
+                    method: "PUT",
+                    credentials: "include",
+                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ executions }),
+                });
+                const result = await response.json();
+                if (!result.success) throw new Error(result.message ?? "Failed to save executions");
+                return (result.data ?? []) as TradeExecution[];
+            } catch (e) {
+                console.error("Error replacing executions:", e);
                 throw e;
             }
         },

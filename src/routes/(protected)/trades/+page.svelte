@@ -30,7 +30,7 @@
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
 	import { DateTimePicker } from "$lib/components/ui/date-time-picker";
 	import { supabase } from "$lib/supabase/client";
-	import { tradeStore } from "$lib/stores/trades.svelte";
+	import { tradeStore, type TradeExecutionInput } from "$lib/stores/trades.svelte";
 	import { accountStore } from "$lib/stores/accounts.svelte";
 	import { payoutStore } from "$lib/stores/payouts.svelte";
 	import { instrumentStore, instrumentPnl } from "$lib/stores/instruments.svelte";
@@ -192,6 +192,20 @@
 	type DistUnit = "usd" | "ticks" | "points";
 	let riskUnit = $state<DistUnit>("usd");
 	let profitUnit = $state<DistUnit>("usd");
+
+	type FillRow = { id: string; qty: string; price: string; at: string };
+	let useFills = $state(false);
+	let entryFills = $state<FillRow[]>([]);
+	let exitFills = $state<FillRow[]>([]);
+
+	let _fillIdCounter = 0;
+	function newFillId(): string {
+		_fillIdCounter += 1;
+		return `f${Date.now().toString(36)}-${_fillIdCounter}`;
+	}
+	function emptyFill(at: string): FillRow {
+		return { id: newFillId(), qty: "", price: "", at };
+	}
 	let formScreenshotFile = $state<File | null>(null);
 	let formScreenshotPreview = $state<string | null>(null);
 	let formExistingScreenshotUrl = $state<string | null>(null);
@@ -224,6 +238,9 @@
 		showRiskProfit = false;
 		riskUnit = "usd";
 		profitUnit = "usd";
+		useFills = false;
+		entryFills = [];
+		exitFills = [];
 		formScreenshotFile = null;
 		formScreenshotPreview = null;
 		formExistingScreenshotUrl = null;
@@ -274,6 +291,10 @@
 		formProfitInput = "";
 		riskUnit = "usd";
 		profitUnit = "usd";
+		useFills = false;
+		entryFills = [];
+		exitFills = [];
+		void loadTradeExecutions(t.id);
 		formScreenshotFile = null;
 		formScreenshotPreview = null;
 		formExistingScreenshotUrl = (t as TradeRow & { screenshot_url?: string | null }).screenshot_url ?? null;
@@ -567,6 +588,99 @@
         return new Intl.NumberFormat(undefined, { maximumFractionDigits: digits }).format(n);
     }
 
+    /** Load existing executions for a trade and populate the fills editor. */
+    async function loadTradeExecutions(tradeId: string) {
+        try {
+            const rows = await tradeStore.listExecutions(supabase, tradeId);
+            const entries = rows
+                .filter((r) => r.kind === "entry")
+                .map((r): FillRow => ({
+                    id: newFillId(),
+                    qty: String(Number(r.quantity)),
+                    price: String(Number(r.price)),
+                    at: toDatetimeLocalValue(new Date(r.executed_at)),
+                }));
+            const exits = rows
+                .filter((r) => r.kind === "exit")
+                .map((r): FillRow => ({
+                    id: newFillId(),
+                    qty: String(Number(r.quantity)),
+                    price: String(Number(r.price)),
+                    at: toDatetimeLocalValue(new Date(r.executed_at)),
+                }));
+            if (entries.length > 1 || exits.length > 1) {
+                useFills = true;
+                entryFills = entries;
+                exitFills = exits;
+            }
+        } catch (e) {
+            console.warn("Could not load executions:", e);
+        }
+    }
+
+    function addEntryFill() {
+        entryFills = [...entryFills, emptyFill(formOpenedAt)];
+    }
+    function removeEntryFill(idx: number) {
+        entryFills = entryFills.filter((_, i) => i !== idx);
+    }
+    function addExitFill() {
+        exitFills = [...exitFills, emptyFill(formClosedAt ?? toDatetimeLocalValue(new Date()))];
+    }
+    function removeExitFill(idx: number) {
+        exitFills = exitFills.filter((_, i) => i !== idx);
+    }
+
+    /** Aggregate of valid entry fills: total qty + weighted avg price. */
+    const entryFillsAgg = $derived.by(() => {
+        const rows = entryFills
+            .map((r) => ({ qty: num(r.qty), price: num(r.price) }))
+            .filter((r): r is { qty: number; price: number } => r.qty != null && r.qty > 0 && r.price != null);
+        if (rows.length === 0) return null;
+        const totalQty = rows.reduce((s, r) => s + r.qty, 0);
+        const notional = rows.reduce((s, r) => s + r.qty * r.price, 0);
+        return { qty: totalQty, avgPrice: notional / totalQty, count: rows.length };
+    });
+
+    /** Aggregate of valid exit fills. */
+    const exitFillsAgg = $derived.by(() => {
+        const rows = exitFills
+            .map((r) => ({ qty: num(r.qty), price: num(r.price) }))
+            .filter((r): r is { qty: number; price: number } => r.qty != null && r.qty > 0 && r.price != null);
+        if (rows.length === 0) return null;
+        const totalQty = rows.reduce((s, r) => s + r.qty, 0);
+        const notional = rows.reduce((s, r) => s + r.qty * r.price, 0);
+        return { qty: totalQty, avgPrice: notional / totalQty, count: rows.length };
+    });
+
+    /** When fills mode is on, mirror computed entry aggregates into the regular form fields. */
+    $effect(() => {
+        if (!useFills) return;
+        const agg = entryFillsAgg;
+        if (agg) {
+            const newEntry = String(Number(agg.avgPrice.toFixed(8)));
+            const newQty = String(Number(agg.qty.toFixed(8)));
+            if (formEntryPrice !== newEntry) formEntryPrice = newEntry;
+            if (formQuantity !== newQty) formQuantity = newQty;
+        } else {
+            if (formEntryPrice !== "") formEntryPrice = "";
+            if (formQuantity !== "") formQuantity = "";
+        }
+    });
+
+    /** When fills mode is on + status closed, mirror exit aggregates into formExitPrice. */
+    $effect(() => {
+        if (!useFills) return;
+        if (formStatus !== "closed") return;
+        const agg = exitFillsAgg;
+        if (agg) {
+            const newExit = String(Number(agg.avgPrice.toFixed(8)));
+            if (formExitPrice !== newExit) formExitPrice = newExit;
+        } else {
+            if (formExitPrice !== "") formExitPrice = "";
+        }
+    });
+
     // Auto-fill take profit whenever implied target changes from profit input
     $effect(() => {
         if (impliedTakeProfit == null) return;
@@ -649,6 +763,67 @@
 		session = s;
 	}
 
+	async function syncTradeExecutions(tradeId: string) {
+		const payload: TradeExecutionInput[] = [];
+		if (useFills) {
+			for (const f of entryFills) {
+				const q = num(f.qty);
+				const p = num(f.price);
+				if (q != null && q > 0 && p != null && f.at) {
+					payload.push({
+						kind: "entry",
+						quantity: q,
+						price: p,
+						executed_at: new Date(f.at).toISOString(),
+					});
+				}
+			}
+			if (formStatus === "closed") {
+				for (const f of exitFills) {
+					const q = num(f.qty);
+					const p = num(f.price);
+					if (q != null && q > 0 && p != null && f.at) {
+						payload.push({
+							kind: "exit",
+							quantity: q,
+							price: p,
+							executed_at: new Date(f.at).toISOString(),
+						});
+					}
+				}
+			}
+		} else {
+			const entry = num(formEntryPrice);
+			const q = num(formQuantity);
+			if (entry != null && q != null && q > 0) {
+				payload.push({
+					kind: "entry",
+					quantity: q,
+					price: entry,
+					executed_at: new Date(formOpenedAt).toISOString(),
+				});
+			}
+			if (formStatus === "closed") {
+				const exit = num(formExitPrice);
+				if (exit != null && q != null && q > 0) {
+					payload.push({
+						kind: "exit",
+						quantity: q,
+						price: exit,
+						executed_at: formClosedAt ? new Date(formClosedAt).toISOString() : new Date(formOpenedAt).toISOString(),
+					});
+				}
+			}
+		}
+		if (payload.length > 0) {
+			try {
+				await tradeStore.replaceExecutions(supabase, tradeId, payload);
+			} catch (e) {
+				console.warn("Failed to sync executions:", e);
+			}
+		}
+	}
+
 	async function submitTradeForm() {
 		if (!session?.user?.id) {
 			toast.error("Sign in to save a trade.");
@@ -659,6 +834,23 @@
 		if (!accountId) {
 			toast.error("Select an account in the sidebar before saving a trade.");
 			return;
+		}
+
+		if (useFills) {
+			if (!entryFillsAgg) {
+				toast.error("Add at least one entry fill.");
+				return;
+			}
+			if (formStatus === "closed") {
+				if (!exitFillsAgg) {
+					toast.error("Add at least one exit fill to close the trade.");
+					return;
+				}
+				if (Math.abs(exitFillsAgg.qty - entryFillsAgg.qty) > 1e-9) {
+					toast.error("Exit fills must total the same quantity as entry fills to close the trade.");
+					return;
+				}
+			}
 		}
 
 		const symbol = formSymbol.trim().toUpperCase();
@@ -743,6 +935,7 @@
 					mistake_ids: formStatus === "closed" ? formMistakeIds : [],
 					checklist_item_ids: formChecklistItemIds
 				});
+				await syncTradeExecutions(editingTradeId);
 			} else {
 				const created = await tradeStore.createTrade(supabase, {
 					account_id: accountId,
@@ -791,6 +984,9 @@
 							screenshot_url: screenshotUrl
 						});
 					}
+				}
+				if (created?.id) {
+					await syncTradeExecutions(created.id);
 				}
 			}
 
@@ -1519,16 +1715,80 @@
 						</div>
 					</div>
 
-					<div class="grid grid-cols-2 gap-3">
-						<div class="space-y-1.5">
-							<div class="text-xs font-medium">Entry price</div>
-							<Input bind:value={formEntryPrice} inputmode="decimal" placeholder="Required" class="rounded-md" />
+					<label class="flex items-center gap-2 cursor-pointer select-none">
+						<input
+							type="checkbox"
+							class="rounded border-input cursor-pointer"
+							checked={useFills}
+							onchange={(e) => {
+								const on = (e.currentTarget as HTMLInputElement).checked;
+								useFills = on;
+								if (on && entryFills.length === 0) {
+									entryFills = [{ id: newFillId(), qty: formQuantity || "", price: formEntryPrice || "", at: formOpenedAt }];
+								}
+								if (on && formStatus === "closed" && exitFills.length === 0 && formExitPrice) {
+									exitFills = [{ id: newFillId(), qty: formQuantity || "", price: formExitPrice, at: formClosedAt ?? formOpenedAt }];
+								}
+							}}
+						/>
+						<span class="text-xs text-muted-foreground">Multiple fills (scale in / scale out)</span>
+					</label>
+
+					{#if !useFills}
+						<div class="grid grid-cols-2 gap-3">
+							<div class="space-y-1.5">
+								<div class="text-xs font-medium">Entry price</div>
+								<Input bind:value={formEntryPrice} inputmode="decimal" placeholder="Required" class="rounded-md" />
+							</div>
+							<div class="space-y-1.5">
+								<div class="text-xs font-medium">Quantity</div>
+								<Input bind:value={formQuantity} inputmode="decimal" placeholder="Required" class="rounded-md" />
+							</div>
 						</div>
-						<div class="space-y-1.5">
-							<div class="text-xs font-medium">Quantity</div>
-							<Input bind:value={formQuantity} inputmode="decimal" placeholder="Required" class="rounded-md" />
+					{:else}
+						<div class="space-y-2 rounded-md border bg-muted/10 p-3">
+							<div class="flex items-center justify-between gap-2">
+								<div class="text-xs font-medium">Entry fills</div>
+								<div class="text-[11px] text-muted-foreground tabular-nums">
+									{#if entryFillsAgg}
+										{formatQty(entryFillsAgg.qty)} contracts · Avg {formatPrice(entryFillsAgg.avgPrice)}
+									{:else}
+										No fills yet
+									{/if}
+								</div>
+							</div>
+
+							{#each entryFills as fill, idx (fill.id)}
+								<div class="grid grid-cols-[1fr_1fr_minmax(0,1.4fr)_auto] gap-2 items-center">
+									<Input bind:value={entryFills[idx].qty} inputmode="decimal" placeholder="Qty" class="rounded-md h-8 text-xs" />
+									<Input bind:value={entryFills[idx].price} inputmode="decimal" placeholder="Price" class="rounded-md h-8 text-xs" />
+									<input
+										type="datetime-local"
+										bind:value={entryFills[idx].at}
+										class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring h-8 w-full rounded-md border px-2 py-1 text-xs shadow-xs outline-none focus-visible:ring-1"
+									/>
+									<Button
+										variant="ghost"
+										size="icon"
+										class="h-8 w-8 cursor-pointer text-rose-700 hover:bg-rose-700/10 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-400"
+										aria-label="Remove entry fill"
+										onclick={() => removeEntryFill(idx)}
+									>
+										<TrashIcon size={14} />
+									</Button>
+								</div>
+							{/each}
+
+							<Button
+								variant="outline"
+								size="sm"
+								class="h-7 rounded-md cursor-pointer text-xs"
+								onclick={addEntryFill}
+							>
+								<PlusIcon size={12} /> Add entry fill
+							</Button>
 						</div>
-					</div>
+					{/if}
 
 					<div class="grid grid-cols-2 gap-3">
 						<div class="space-y-1.5">
@@ -1686,20 +1946,80 @@
 					</div>
 
 					{#if formStatus === "closed"}
-						<div class="grid grid-cols-2 gap-3">
-							<div class="space-y-1.5">
-								<div class="text-xs font-medium">Exit price</div>
-								<Input bind:value={formExitPrice} inputmode="decimal" placeholder="Optional" class="rounded-md" />
+						{#if !useFills}
+							<div class="grid grid-cols-2 gap-3">
+								<div class="space-y-1.5">
+									<div class="text-xs font-medium">Exit price</div>
+									<Input bind:value={formExitPrice} inputmode="decimal" placeholder="Optional" class="rounded-md" />
+								</div>
+								<div class="space-y-1.5">
+									<div class="text-xs font-medium">Closed at</div>
+									<DateTimePicker
+										value={formClosedAt}
+										onValueChange={(v) => (formClosedAt = v)}
+										clearable
+									/>
+								</div>
 							</div>
-							<div class="space-y-1.5">
-								<div class="text-xs font-medium">Closed at</div>
-								<DateTimePicker
-									value={formClosedAt}
-									onValueChange={(v) => (formClosedAt = v)}
-									clearable
-								/>
+						{:else}
+							<div class="space-y-2 rounded-md border bg-muted/10 p-3">
+								<div class="flex items-center justify-between gap-2">
+									<div class="text-xs font-medium">Exit fills</div>
+									<div class="text-[11px] text-muted-foreground tabular-nums">
+										{#if exitFillsAgg}
+											{formatQty(exitFillsAgg.qty)} contracts · Avg {formatPrice(exitFillsAgg.avgPrice)}
+										{:else}
+											No fills yet
+										{/if}
+									</div>
+								</div>
+
+								{#each exitFills as fill, idx (fill.id)}
+									<div class="grid grid-cols-[1fr_1fr_minmax(0,1.4fr)_auto] gap-2 items-center">
+										<Input bind:value={exitFills[idx].qty} inputmode="decimal" placeholder="Qty" class="rounded-md h-8 text-xs" />
+										<Input bind:value={exitFills[idx].price} inputmode="decimal" placeholder="Price" class="rounded-md h-8 text-xs" />
+										<input
+											type="datetime-local"
+											bind:value={exitFills[idx].at}
+											class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring h-8 w-full rounded-md border px-2 py-1 text-xs shadow-xs outline-none focus-visible:ring-1"
+										/>
+										<Button
+											variant="ghost"
+											size="icon"
+											class="h-8 w-8 cursor-pointer text-rose-700 hover:bg-rose-700/10 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-400"
+											aria-label="Remove exit fill"
+											onclick={() => removeExitFill(idx)}
+										>
+											<TrashIcon size={14} />
+										</Button>
+									</div>
+								{/each}
+
+								<Button
+									variant="outline"
+									size="sm"
+									class="h-7 rounded-md cursor-pointer text-xs"
+									onclick={addExitFill}
+								>
+									<PlusIcon size={12} /> Add exit fill
+								</Button>
+
+								{#if entryFillsAgg && exitFillsAgg && Math.abs(exitFillsAgg.qty - entryFillsAgg.qty) > 1e-9}
+									<p class="text-[11px] text-amber-700 dark:text-amber-400 leading-snug">
+										Exit qty ({formatQty(exitFillsAgg.qty)}) doesn't match entry qty ({formatQty(entryFillsAgg.qty)}).
+									</p>
+								{/if}
+
+								<div class="space-y-1.5 pt-1">
+									<div class="text-xs font-medium">Closed at</div>
+									<DateTimePicker
+										value={formClosedAt}
+										onValueChange={(v) => (formClosedAt = v)}
+										clearable
+									/>
+								</div>
 							</div>
-						</div>
+						{/if}
 					{/if}
 
 					{#if commissionPerSide > 0}
