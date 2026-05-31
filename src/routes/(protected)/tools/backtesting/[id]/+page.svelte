@@ -202,8 +202,9 @@
 	});
 
 	$effect(() => {
-		if (!formSymbol && instrumentStore.instruments?.[0]) {
-			formSymbol = instrumentStore.instruments[0].symbol;
+		if (!formSymbol) {
+			const fallback = sessionInstrument?.symbol ?? instrumentStore.instruments?.[0]?.symbol;
+			if (fallback) formSymbol = fallback;
 		}
 	});
 
@@ -236,7 +237,7 @@
 	});
 
 	function resetForm() {
-		formSymbol = instrumentStore.instruments?.[0]?.symbol ?? "";
+		formSymbol = sessionInstrument?.symbol ?? instrumentStore.instruments?.[0]?.symbol ?? "";
 		formSide = "long";
 		formStatus = "open";
 		formEntryPrice = "";
@@ -630,20 +631,26 @@
 		<div class="flex-1 overflow-y-auto px-5 py-4 space-y-4">
 			<div class="space-y-1.5">
 				<div class="text-xs font-medium">Symbol</div>
-				<Select.Root type="single" bind:value={formSymbol}>
-					<Select.Trigger class="w-full rounded-md cursor-pointer">
-						<span>{formSymbol || "Select symbol"}</span>
-					</Select.Trigger>
-					<Select.Content class="rounded-md">
-						{#each instrumentStore.instruments as instrument}
-							<Select.Item value={instrument.symbol} class="cursor-pointer">
-								{instrument.symbol}
-							</Select.Item>
-						{:else}
-							<div class="px-2 py-3 text-center text-xs text-muted-foreground">No instruments yet.</div>
-						{/each}
-					</Select.Content>
-				</Select.Root>
+				{#if sessionInstrument}
+					<div class="border-input bg-muted/30 text-muted-foreground flex h-9 w-full items-center rounded-md border px-3 text-sm">
+						{sessionInstrument.symbol}
+					</div>
+				{:else}
+					<Select.Root type="single" bind:value={formSymbol}>
+						<Select.Trigger class="w-full rounded-md cursor-pointer">
+							<span>{formSymbol || "Select symbol"}</span>
+						</Select.Trigger>
+						<Select.Content class="rounded-md">
+							{#each instrumentStore.instruments as instrument}
+								<Select.Item value={instrument.symbol} class="cursor-pointer">
+									{instrument.symbol}
+								</Select.Item>
+							{:else}
+								<div class="px-2 py-3 text-center text-xs text-muted-foreground">No instruments yet.</div>
+							{/each}
+						</Select.Content>
+					</Select.Root>
+				{/if}
 			</div>
 
 			<div class="grid grid-cols-2 gap-3">

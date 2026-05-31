@@ -1,6 +1,14 @@
 <script lang="ts">
 	import type { BacktestSession } from "$lib/stores/backtest-sessions.svelte";
 	import { Button } from "$lib/components/ui/button";
+	import { num, normalizeSide } from "$lib/utils/number";
+	import {
+		formatDate,
+		formatFraction,
+		formatNumber,
+		formatUsd,
+		formatWhen,
+	} from "$lib/utils/format";
 	import {
 		BracketsCurlyIcon,
 		ChartLineDownIcon,
@@ -48,61 +56,6 @@
 		mistakes?: NamedRecord[];
 		instrumentSymbol?: string | null;
 	} = $props();
-
-	function num(v: string | number | null | undefined): number | undefined {
-		if (v == null || v === "") return undefined;
-		const n = typeof v === "number" ? v : Number(v);
-		return Number.isFinite(n) ? n : undefined;
-	}
-
-	function normalizeSide(side: string | null | undefined): "long" | "short" | null {
-		if (side == null) return null;
-		const s = String(side).toLowerCase();
-		if (s === "long" || s === "short") return s;
-		return null;
-	}
-
-	function formatUsd(value?: number | null) {
-		if (value == null || Number.isNaN(value)) return "—";
-		return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(value);
-	}
-
-	function formatPct(value?: number | null, digits = 2) {
-		if (value == null || !Number.isFinite(value)) return "—";
-		return `${(value * 100).toFixed(digits)}%`;
-	}
-
-	function formatNumber(value?: number | null, digits = 2) {
-		if (value == null || !Number.isFinite(value)) return "—";
-		return new Intl.NumberFormat(undefined, {
-			minimumFractionDigits: digits,
-			maximumFractionDigits: digits,
-		}).format(value);
-	}
-
-	function formatDate(iso: string | null | undefined) {
-		if (!iso) return "—";
-		const d = new Date(iso);
-		if (Number.isNaN(d.getTime())) return "—";
-		return new Intl.DateTimeFormat(undefined, {
-			month: "short",
-			day: "numeric",
-			year: "numeric",
-		}).format(d);
-	}
-
-	function formatWhen(iso: string | null | undefined) {
-		if (!iso) return "—";
-		const d = new Date(iso);
-		if (Number.isNaN(d.getTime())) return "—";
-		return new Intl.DateTimeFormat(undefined, {
-			month: "short",
-			day: "numeric",
-			year: "numeric",
-			hour: "2-digit",
-			minute: "2-digit",
-		}).format(d);
-	}
 
 	function rTrade(t: TradeRow): number | null {
 		const pnl = num(t.pnl);
@@ -639,7 +592,7 @@
 			</div>
 			<div class="rounded-md border bg-background p-3">
 				<div class="text-[11px] text-muted-foreground">Win rate</div>
-				<div class="mt-1 text-xl font-semibold tabular-nums">{formatPct(metrics.winRate, 1)}</div>
+				<div class="mt-1 text-xl font-semibold tabular-nums">{formatFraction(metrics.winRate, 1)}</div>
 				<div class="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
 					{metrics.winCount}W / {metrics.lossCount}L{metrics.breakevenCount ? ` / ${metrics.breakevenCount}BE` : ""}
 				</div>
@@ -683,7 +636,7 @@
 				</div>
 				{#if equity.maxDrawdownPct != null}
 					<div class="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
-						{formatPct(-equity.maxDrawdownPct, 2)}
+						{formatFraction(-equity.maxDrawdownPct, 2)}
 					</div>
 				{/if}
 			</div>
@@ -781,7 +734,7 @@
 							<tr class="[&>td]:px-3 [&>td]:py-2">
 								<td class="font-medium">{s.name}</td>
 								<td class="text-right tabular-nums">{s.trades}</td>
-								<td class="text-right tabular-nums">{formatPct(wr, 0)}</td>
+								<td class="text-right tabular-nums">{formatFraction(wr, 0)}</td>
 								<td class={[
 									"text-right tabular-nums font-medium",
 									s.pnl > 0 && "text-emerald-700 dark:text-emerald-400",
