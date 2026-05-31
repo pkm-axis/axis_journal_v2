@@ -41,25 +41,48 @@
 		closedAt: string | null;
 	};
 
-	type Props = { open: boolean } & (MonthProps | TradeProps);
+	type SessionProps = {
+		variant: "session";
+		name: string;
+		instrument: string | null;
+		netPnl: number;
+		trades: number;
+		winRate: number | null;
+		avgRr: number | null;
+		startingBalance: number;
+		endingBalance: number;
+		periodStart: string | null;
+		periodEnd: string | null;
+		tradeBars: DayBar[];
+	};
+
+	type Props = { open: boolean } & (MonthProps | TradeProps | SessionProps);
 
 	let { open = $bindable(false), ...data }: Props = $props();
 
 	let cardEl = $state<HTMLDivElement | null>(null);
 	let downloading = $state(false);
 
-	const filename = $derived(
-		data.variant === "month"
-			? `pnl-${MONTHS[data.month].toLowerCase()}-${data.year}.png`
-			: `trade-${data.variant === "trade" ? data.symbol : "card"}.png`
-	);
+	function slug(s: string) {
+		return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "session";
+	}
 
-	const title = $derived(data.variant === "month" ? "Share P&L Card" : "Share Trade");
-	const description = $derived(
-		data.variant === "month"
-			? "Download your monthly summary as an image to share anywhere."
-			: "Download this trade as an image to share anywhere."
-	);
+	const filename = $derived.by(() => {
+		if (data.variant === "month") return `pnl-${MONTHS[data.month].toLowerCase()}-${data.year}.png`;
+		if (data.variant === "trade") return `trade-${data.symbol}.png`;
+		return `backtest-${slug(data.name)}.png`;
+	});
+
+	const title = $derived.by(() => {
+		if (data.variant === "month") return "Share P&L Card";
+		if (data.variant === "trade") return "Share Trade";
+		return "Share Backtest";
+	});
+	const description = $derived.by(() => {
+		if (data.variant === "month") return "Download your monthly summary as an image to share anywhere.";
+		if (data.variant === "trade") return "Download this trade as an image to share anywhere.";
+		return "Download this backtest session as an image to share anywhere.";
+	});
 
 	const CAPTURE_WIDTH = 600;
 
@@ -110,6 +133,15 @@
 	function fmtRR(rr: number | null) {
 		if (rr == null || !Number.isFinite(rr)) return "—";
 		return `1:${rr.toFixed(2)}`;
+	}
+
+	function fmtDate(iso: string | null) {
+		if (!iso) return "—";
+		const d = new Date(iso);
+		if (Number.isNaN(d.getTime())) return "—";
+		return new Intl.DateTimeFormat(undefined, {
+			month: "short", day: "numeric", year: "numeric",
+		}).format(d);
 	}
 
 	const pnlColor = (pnl: number | null) =>
@@ -205,7 +237,7 @@
 						<span style="color:#64748b; font-size:11px; font-weight:500;">
 							{MONTHS[data.month]} {data.year}
 						</span>
-					{:else}
+					{:else if data.variant === "trade"}
 						<div style="display:flex; align-items:center; gap:6px;">
 							<span style={`display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:600; background:${data.side === 'long' ? '#4ade8022' : '#f8717122'}; color:${data.side === 'long' ? '#4ade80' : '#f87171'};`}>
 								{data.side?.toUpperCase() ?? "—"}
@@ -213,6 +245,17 @@
 							<span style={`display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:600; background:${data.status === 'open' ? '#fbbf2422' : '#64748b22'}; color:${data.status === 'open' ? '#fbbf24' : '#94a3b8'};`}>
 								{data.status.toUpperCase()}
 							</span>
+						</div>
+					{:else}
+						<div style="display:flex; align-items:center; gap:6px;">
+							<span style={`display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:600; background:${theme.accent}22; color:${theme.accent}; letter-spacing:0.05em;`}>
+								BACKTEST
+							</span>
+							{#if data.instrument}
+								<span style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:600; background:#64748b22; color:#94a3b8;">
+									{data.instrument}
+								</span>
+							{/if}
 						</div>
 					{/if}
 				</div>
@@ -253,7 +296,7 @@
 						</div>
 					</div>
 
-				{:else}
+				{:else if data.variant === "trade"}
 					<!-- Trade: symbol + P&L -->
 					<div style="color:#94a3b8; font-size:11px; font-weight:500; letter-spacing:0.05em; text-transform:uppercase; margin-bottom:2px;">Symbol</div>
 					<div style="color:#e2e8f0; font-size:2rem; font-weight:700; letter-spacing:-0.02em; line-height:1; margin-bottom:4px;">{data.symbol}</div>
@@ -290,6 +333,50 @@
 							</div>
 						{/if}
 					</div>
+				{:else}
+					<!-- Session: name + big P&L + bars + stats -->
+					<div style="color:#94a3b8; font-size:11px; font-weight:500; letter-spacing:0.05em; text-transform:uppercase; margin-bottom:2px;">Session</div>
+					<div style="color:#e2e8f0; font-size:1.25rem; font-weight:700; letter-spacing:-0.01em; line-height:1.2; margin-bottom:16px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+						{data.name}
+					</div>
+
+					<div style="color:#94a3b8; font-size:11px; font-weight:500; letter-spacing:0.05em; text-transform:uppercase; margin-bottom:4px;">Net P&L</div>
+					<div style={`font-size:2.5rem; font-weight:700; letter-spacing:-0.02em; line-height:1; margin-bottom:20px; color:${pnlColor(data.netPnl)};`}>
+						{data.trades === 0 ? "—" : fmt(data.netPnl)}
+					</div>
+
+					{#if data.tradeBars.length > 0}
+						<div style="display:flex; align-items:flex-end; gap:2px; height:40px; margin-bottom:20px;">
+							{#each data.tradeBars as bar}
+								<div
+									style={`flex:1; border-radius:2px; height:${Math.max(4, bar.pct * 40)}px; background:${bar.pnl > 0 ? '#4ade8055' : '#f8717155'}; border-top:2px solid ${bar.pnl > 0 ? '#4ade80' : '#f87171'};`}
+								></div>
+							{/each}
+						</div>
+					{/if}
+
+					<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px;">
+						<div>
+							<div style="color:#64748b; font-size:10px; font-weight:500; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:2px;">Trades</div>
+							<div style="color:#e2e8f0; font-size:16px; font-weight:600;">{data.trades || "—"}</div>
+						</div>
+						<div>
+							<div style="color:#64748b; font-size:10px; font-weight:500; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:2px;">Win rate</div>
+							<div style="color:#e2e8f0; font-size:16px; font-weight:600;">
+								{data.winRate == null ? "—" : `${Math.round(data.winRate * 100)}%`}
+							</div>
+						</div>
+						<div>
+							<div style="color:#64748b; font-size:10px; font-weight:500; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:2px;">Avg R:R</div>
+							<div style="color:#e2e8f0; font-size:16px; font-weight:600;">{fmtRR(data.avgRr)}</div>
+						</div>
+					</div>
+
+					{#if data.periodStart || data.periodEnd}
+						<div style="margin-top:16px; color:#64748b; font-size:11px; font-weight:500; letter-spacing:0.02em;">
+							{fmtDate(data.periodStart)} → {fmtDate(data.periodEnd)}
+						</div>
+					{/if}
 				{/if}
 
 				<!-- Watermark -->
@@ -301,6 +388,10 @@
 			{#if data.variant === "month"}
 				<p class="text-xs text-muted-foreground">
 					Only closed trades for {MONTHS[data.month]} {data.year} are included.
+				</p>
+			{:else if data.variant === "session"}
+				<p class="text-xs text-muted-foreground">
+					Bars show P&L of each closed trade in this session, in chronological order.
 				</p>
 			{/if}
 		</div>

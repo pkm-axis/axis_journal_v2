@@ -22,9 +22,11 @@
 		FlaskIcon,
 		PencilSimpleIcon,
 		PlusIcon,
+		ShareNetworkIcon,
 		TrashIcon
 	} from "phosphor-svelte";
 	import SessionSummary from "./session-summary.svelte";
+	import PnlShareDialog from "$lib/components/pnl-share-sheet/pnl-share-dialog.svelte";
 	import { supabase } from "$lib/supabase/client";
 	import { backtestSessionStore } from "$lib/stores/backtest-sessions.svelte";
 	import { tradeStore } from "$lib/stores/trades.svelte";
@@ -61,6 +63,7 @@
 
 	let tradeSheetOpen = $state(false);
 	let summaryOpen = $state(false);
+	let shareOpen = $state(false);
 	let editingTradeId = $state<string | null>(null);
 	let saving = $state(false);
 	let deleting = $state(false);
@@ -221,6 +224,17 @@
 		}
 		const avgRr = rrValues.length > 0 ? rrValues.reduce((a, b) => a + b, 0) / rrValues.length : null;
 		return { count: rows.length, netPnl, winRate, avgRr };
+	});
+
+	const tradeBars = $derived.by(() => {
+		const closed = trades
+			.filter((t) => t.status === "closed" && t.closed_at)
+			.sort((a, b) => new Date(a.closed_at!).getTime() - new Date(b.closed_at!).getTime());
+		const entries = closed.map((t) => ({ pnl: num(t.pnl) ?? 0, pct: 0 }));
+		if (entries.length === 0) return entries;
+		const max = Math.max(...entries.map((e) => Math.abs(e.pnl)));
+		entries.forEach((e) => { e.pct = max > 0 ? Math.abs(e.pnl) / max : 0; });
+		return entries;
 	});
 
 	const equityCurve = $derived.by(() => {
@@ -451,6 +465,10 @@
 				{/if}
 			</div>
 			<div class="flex flex-wrap items-center gap-2">
+				<Button variant="outline" onclick={() => (shareOpen = true)} class="cursor-pointer rounded-md">
+					<ShareNetworkIcon />
+					Share
+				</Button>
 				<Button variant="outline" onclick={() => (summaryOpen = true)} class="cursor-pointer rounded-md">
 					<FileTextIcon />
 					View summary
@@ -826,3 +844,19 @@
 		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
+
+<PnlShareDialog
+	variant="session"
+	bind:open={shareOpen}
+	name={sess?.name ?? "Backtest"}
+	instrument={sessionInstrument?.symbol ?? null}
+	netPnl={stats.netPnl}
+	trades={stats.count}
+	winRate={stats.winRate}
+	avgRr={stats.avgRr}
+	startingBalance={equityCurve.start}
+	endingBalance={equityCurve.end}
+	periodStart={sess?.period_start ?? null}
+	periodEnd={sess?.period_end ?? null}
+	tradeBars={tradeBars}
+/>
