@@ -61,16 +61,24 @@
 			: "Download this trade as an image to share anywhere."
 	);
 
+	const CAPTURE_WIDTH = 600;
+
 	async function download() {
 		if (!cardEl) return;
 		downloading = true;
+		const prevWidth = cardEl.style.width;
+		const prevMaxWidth = cardEl.style.maxWidth;
+		cardEl.style.width = `${CAPTURE_WIDTH}px`;
+		cardEl.style.maxWidth = `${CAPTURE_WIDTH}px`;
 		try {
-			const dataUrl = await toPng(cardEl, { pixelRatio: 2 });
+			const dataUrl = await toPng(cardEl, { pixelRatio: 2, width: CAPTURE_WIDTH });
 			const a = document.createElement("a");
 			a.href = dataUrl;
 			a.download = filename;
 			a.click();
 		} finally {
+			cardEl.style.width = prevWidth;
+			cardEl.style.maxWidth = prevMaxWidth;
 			downloading = false;
 		}
 	}
@@ -212,7 +220,7 @@
 				{#if data.variant === "month"}
 					<!-- Month: big P&L label + number -->
 					<div style="color:#94a3b8; font-size:11px; font-weight:500; letter-spacing:0.05em; text-transform:uppercase; margin-bottom:4px;">Net P&L</div>
-					<div style={`font-size:clamp(2rem,8vw,3rem); font-weight:700; letter-spacing:-0.02em; line-height:1; margin-bottom:20px; color:${pnlColor(data.stats.total)};`}>
+					<div style={`font-size:2.5rem; font-weight:700; letter-spacing:-0.02em; line-height:1; margin-bottom:20px; color:${pnlColor(data.stats.total)};`}>
 						{data.stats.tradingDays === 0 ? "—" : fmt(data.stats.total)}
 					</div>
 
