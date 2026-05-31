@@ -189,6 +189,9 @@
 	/** Optional: when filled, derives take profit from entry, qty, side, and instrument. */
 	let formProfitInput = $state("");
 	let showRiskProfit = $state(false);
+	type DistUnit = "usd" | "ticks" | "points";
+	let riskUnit = $state<DistUnit>("usd");
+	let profitUnit = $state<DistUnit>("usd");
 	let formScreenshotFile = $state<File | null>(null);
 	let formScreenshotPreview = $state<string | null>(null);
 	let formExistingScreenshotUrl = $state<string | null>(null);
@@ -219,6 +222,8 @@
 		formRiskInput = "";
 		formProfitInput = "";
 		showRiskProfit = false;
+		riskUnit = "usd";
+		profitUnit = "usd";
 		formScreenshotFile = null;
 		formScreenshotPreview = null;
 		formExistingScreenshotUrl = null;
@@ -267,6 +272,8 @@
 		formChecklistItemIds = [...((t as TradeRow & { checklist_item_ids?: string[] }).checklist_item_ids ?? [])];
 		formRiskInput = "";
 		formProfitInput = "";
+		riskUnit = "usd";
+		profitUnit = "usd";
 		formScreenshotFile = null;
 		formScreenshotPreview = null;
 		formExistingScreenshotUrl = (t as TradeRow & { screenshot_url?: string | null }).screenshot_url ?? null;
@@ -483,15 +490,24 @@
         return (gross - commissionBreakdown.total).toFixed(2);
     });
 
-    /** Stop price implied by a desired dollar risk, snapped to tick size. */
+    /** Price distance from an input value in $, ticks, or points. */
+    function priceDistanceFromInput(value: number, unit: DistUnit, qty: number): number | null {
+        if (!selectedInstrument) return null;
+        if (unit === "points") return value;
+        if (unit === "ticks") return value * selectedInstrument.tick_size;
+        const pv = selectedInstrument.tick_value / selectedInstrument.tick_size;
+        if (!Number.isFinite(pv) || pv <= 0) return null;
+        return value / (pv * qty);
+    }
+
+    /** Stop price implied by the risk input, snapped to tick size. */
     const impliedStop = $derived.by(() => {
         const risk = num(formRiskInput);
         const entry = num(formEntryPrice);
         const qty = num(formQuantity);
         if (risk == null || risk <= 0 || entry == null || qty == null || qty <= 0 || !selectedInstrument) return null;
-        const pv = selectedInstrument.tick_value / selectedInstrument.tick_size;
-        if (!Number.isFinite(pv) || pv <= 0) return null;
-        const distance = risk / (pv * qty);
+        const distance = priceDistanceFromInput(risk, riskUnit, qty);
+        if (distance == null || !Number.isFinite(distance) || distance <= 0) return null;
         const raw = formSide === "long" ? entry - distance : entry + distance;
         const tick = selectedInstrument.tick_size;
         return tick > 0 ? Math.round(raw / tick) * tick : raw;
@@ -503,19 +519,53 @@
         formStopLoss = String(Number(impliedStop.toFixed(8)));
     });
 
-    /** Take profit price implied by a desired profit target, snapped to tick size. */
+    /** Take profit price implied by the profit input, snapped to tick size. */
     const impliedTakeProfit = $derived.by(() => {
         const profit = num(formProfitInput);
         const entry = num(formEntryPrice);
         const qty = num(formQuantity);
         if (profit == null || profit <= 0 || entry == null || qty == null || qty <= 0 || !selectedInstrument) return null;
-        const pv = selectedInstrument.tick_value / selectedInstrument.tick_size;
-        if (!Number.isFinite(pv) || pv <= 0) return null;
-        const distance = profit / (pv * qty);
+        const distance = priceDistanceFromInput(profit, profitUnit, qty);
+        if (distance == null || !Number.isFinite(distance) || distance <= 0) return null;
         const raw = formSide === "long" ? entry + distance : entry - distance;
         const tick = selectedInstrument.tick_size;
         return tick > 0 ? Math.round(raw / tick) * tick : raw;
     });
+
+    /** Distance from entry to stop loss expressed in ticks / points / $. */
+    const stopDistance = $derived.by(() => {
+        const entry = num(formEntryPrice);
+        const stop = num(formStopLoss);
+        const qty = num(formQuantity);
+        if (entry == null || stop == null || !selectedInstrument) return null;
+        const priceDist = Math.abs(entry - stop);
+        if (priceDist <= 0) return null;
+        const tick = selectedInstrument.tick_size;
+        const ticks = tick > 0 ? priceDist / tick : null;
+        const pv = tick > 0 ? selectedInstrument.tick_value / tick : null;
+        const usd = pv != null && qty != null && qty > 0 ? priceDist * pv * qty : null;
+        return { points: priceDist, ticks, usd };
+    });
+
+    /** Distance from entry to take profit expressed in ticks / points / $. */
+    const takeProfitDistance = $derived.by(() => {
+        const entry = num(formEntryPrice);
+        const tp = num(formTakeProfit);
+        const qty = num(formQuantity);
+        if (entry == null || tp == null || !selectedInstrument) return null;
+        const priceDist = Math.abs(entry - tp);
+        if (priceDist <= 0) return null;
+        const tick = selectedInstrument.tick_size;
+        const ticks = tick > 0 ? priceDist / tick : null;
+        const pv = tick > 0 ? selectedInstrument.tick_value / tick : null;
+        const usd = pv != null && qty != null && qty > 0 ? priceDist * pv * qty : null;
+        return { points: priceDist, ticks, usd };
+    });
+
+    function fmtDist(n: number | null | undefined, digits = 2): string {
+        if (n == null || !Number.isFinite(n)) return "—";
+        return new Intl.NumberFormat(undefined, { maximumFractionDigits: digits }).format(n);
+    }
 
     // Auto-fill take profit whenever implied target changes from profit input
     $effect(() => {
@@ -1492,6 +1542,11 @@
 								class="rounded-md"
 								oninput={() => { formRiskInput = ""; }}
 							/>
+							{#if stopDistance}
+								<p class="text-[11px] text-muted-foreground tabular-nums leading-snug">
+									{fmtDist(stopDistance.ticks, 1)} ticks · {fmtDist(stopDistance.points, 2)} pts{stopDistance.usd != null ? ` · ${formatUsd(stopDistance.usd)}` : ""}
+								</p>
+							{/if}
 						</div>
 						<div class="space-y-1.5">
 							<div class="flex items-baseline justify-between">
@@ -1504,6 +1559,11 @@
 								class="rounded-md"
 								oninput={() => { formProfitInput = ""; }}
 							/>
+							{#if takeProfitDistance}
+								<p class="text-[11px] text-muted-foreground tabular-nums leading-snug">
+									{fmtDist(takeProfitDistance.ticks, 1)} ticks · {fmtDist(takeProfitDistance.points, 2)} pts{takeProfitDistance.usd != null ? ` · ${formatUsd(takeProfitDistance.usd)}` : ""}
+								</p>
+							{/if}
 						</div>
 					</div>
 
@@ -1513,15 +1573,37 @@
 					</label>
 
 					{#if showRiskProfit}
+					{@const unitOptions: { value: DistUnit; label: string }[] = [
+						{ value: "usd", label: "$" },
+						{ value: "ticks", label: "ticks" },
+						{ value: "points", label: "pts" },
+					]}
+					{@const riskPlaceholder = riskUnit === "usd" ? "e.g. 250" : riskUnit === "ticks" ? "e.g. 20" : "e.g. 5"}
+					{@const profitPlaceholder = profitUnit === "usd" ? "e.g. 500" : profitUnit === "ticks" ? "e.g. 40" : "e.g. 10"}
 					<div class="grid grid-cols-2 gap-3">
 						<div class="space-y-1.5">
-							<div class="text-xs font-medium">
-								Risk ($)
+							<div class="flex items-center justify-between gap-2">
+								<div class="text-xs font-medium">Risk</div>
+								<div class="inline-flex rounded-md border p-0.5 gap-0.5">
+									{#each unitOptions as opt}
+										<button
+											type="button"
+											class={[
+												"px-1.5 py-0.5 text-[10px] font-medium rounded-sm cursor-pointer transition-colors",
+												riskUnit === opt.value ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
+											]}
+											aria-pressed={riskUnit === opt.value}
+											onclick={() => (riskUnit = opt.value)}
+										>
+											{opt.label}
+										</button>
+									{/each}
+								</div>
 							</div>
 							<Input
 								bind:value={formRiskInput}
 								inputmode="decimal"
-								placeholder="e.g. 250"
+								placeholder={riskPlaceholder}
 								class="rounded-md"
 							/>
 							{#if impliedStop != null}
@@ -1536,13 +1618,28 @@
 						</div>
 
 						<div class="space-y-1.5">
-							<div class="text-xs font-medium">
-								Profit ($)
+							<div class="flex items-center justify-between gap-2">
+								<div class="text-xs font-medium">Profit</div>
+								<div class="inline-flex rounded-md border p-0.5 gap-0.5">
+									{#each unitOptions as opt}
+										<button
+											type="button"
+											class={[
+												"px-1.5 py-0.5 text-[10px] font-medium rounded-sm cursor-pointer transition-colors",
+												profitUnit === opt.value ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
+											]}
+											aria-pressed={profitUnit === opt.value}
+											onclick={() => (profitUnit = opt.value)}
+										>
+											{opt.label}
+										</button>
+									{/each}
+								</div>
 							</div>
 							<Input
 								bind:value={formProfitInput}
 								inputmode="decimal"
-								placeholder="e.g. 500"
+								placeholder={profitPlaceholder}
 								class="rounded-md"
 							/>
 							{#if impliedTakeProfit != null}
