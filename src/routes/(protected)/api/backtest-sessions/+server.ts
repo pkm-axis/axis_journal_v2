@@ -71,6 +71,7 @@ export const POST: RequestHandler = async ({ request, locals: { supabase, safeGe
             description: body.description ?? null,
             instrument_id: body.instrument_id ?? null,
             starting_balance: body.starting_balance ?? null,
+            max_loss_limit: body.max_loss_limit ?? null,
             period_start: body.period_start ?? null,
             period_end: body.period_end ?? null,
             notes: body.notes ?? null,

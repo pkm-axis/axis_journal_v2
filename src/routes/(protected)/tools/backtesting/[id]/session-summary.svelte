@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { BacktestSession } from "$lib/stores/backtest-sessions.svelte";
+	import { backtestFailStatus, type BacktestSession } from "$lib/stores/backtest-sessions.svelte";
 	import { Button } from "$lib/components/ui/button";
 	import { num, normalizeSide } from "$lib/utils/number";
 	import {
@@ -141,6 +141,8 @@
 		};
 	});
 
+	const failStatus = $derived(backtestFailStatus(session?.max_loss_limit, metrics.netPnl));
+
 	const equity = $derived.by(() => {
 		const start = Number(session?.starting_balance ?? 0);
 		const sorted = closedTrades
@@ -247,6 +249,8 @@
 					instrument_id: session.instrument_id,
 					instrument_symbol: instrumentSymbol,
 					starting_balance: session.starting_balance,
+					max_loss_limit: session.max_loss_limit,
+					failed: failStatus?.breached ?? false,
 					period_start: session.period_start,
 					period_end: session.period_end,
 					notes: session.notes,
@@ -353,7 +357,10 @@
 		if (session?.starting_balance != null) {
 			lines.push(`- **Starting balance:** ${fmtUsdMd(Number(session.starting_balance))}`);
 		}
-		lines.push(`- **Status:** ${session?.archived ? "Archived" : "Active"}`);
+		if (session?.max_loss_limit != null) {
+			lines.push(`- **Max loss limit:** ${fmtUsdMd(Number(session.max_loss_limit))}${failStatus?.breached ? " (breached)" : ""}`);
+		}
+		lines.push(`- **Status:** ${failStatus?.breached ? "Failed" : session?.archived ? "Archived" : "Active"}`);
 		lines.push(`- **Created:** ${formatDate(session?.created_at ?? null)}`);
 		lines.push(`- **Last updated:** ${formatDate(session?.updated_at ?? null)}`);
 		lines.push("");
@@ -501,6 +508,11 @@
 			<div class="flex flex-wrap items-center gap-2">
 				<FlaskIcon size={18} class="text-muted-foreground shrink-0" />
 				<h2 class="text-lg font-semibold tracking-tight">{session?.name ?? "Session"}</h2>
+				{#if failStatus?.breached}
+					<span class="rounded-md bg-rose-700/10 px-2 py-0.5 text-[10px] font-medium uppercase text-rose-700 dark:text-rose-400">
+						Failed
+					</span>
+				{/if}
 				{#if session?.archived}
 					<span class="rounded-md bg-muted px-2 py-0.5 text-[10px] uppercase text-muted-foreground">
 						Archived
@@ -668,6 +680,17 @@
 							: `${equity.pct > 0 ? "+" : ""}${(equity.pct * 100).toFixed(2)}%`}
 					</span>
 				</div>
+				{#if failStatus}
+					<div class="flex items-center justify-between border-t pt-1.5">
+						<span class="text-muted-foreground">Max loss limit</span>
+						<span class={[
+							"font-medium",
+							failStatus.breached && "text-rose-700 dark:text-rose-400"
+						]}>
+							{formatUsd(failStatus.limit)} · {failStatus.breached ? "breached" : "within"}
+						</span>
+					</div>
+				{/if}
 			</div>
 		</div>
 

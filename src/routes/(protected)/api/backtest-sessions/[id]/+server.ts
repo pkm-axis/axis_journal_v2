@@ -6,6 +6,7 @@ const updatable = [
     "description",
     "instrument_id",
     "starting_balance",
+    "max_loss_limit",
     "period_start",
     "period_end",
     "notes",

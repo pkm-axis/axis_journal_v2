@@ -23,12 +23,13 @@
 		PencilSimpleIcon,
 		PlusIcon,
 		ShareNetworkIcon,
-		TrashIcon
+		TrashIcon,
+		WarningIcon
 	} from "phosphor-svelte";
 	import SessionSummary from "./session-summary.svelte";
 	import PnlShareDialog from "$lib/components/pnl-share-sheet/pnl-share-dialog.svelte";
 	import { supabase } from "$lib/supabase/client";
-	import { backtestSessionStore } from "$lib/stores/backtest-sessions.svelte";
+	import { backtestSessionStore, backtestFailStatus } from "$lib/stores/backtest-sessions.svelte";
 	import { tradeStore } from "$lib/stores/trades.svelte";
 	import { instrumentStore, instrumentPnl } from "$lib/stores/instruments.svelte";
 	import { strategyStore } from "$lib/stores/strategies.svelte";
@@ -225,6 +226,9 @@
 		const avgRr = rrValues.length > 0 ? rrValues.reduce((a, b) => a + b, 0) / rrValues.length : null;
 		return { count: rows.length, netPnl, winRate, avgRr };
 	});
+
+	// Live "failed" status from the session's optional max loss limit.
+	const failStatus = $derived(backtestFailStatus(sess?.max_loss_limit, stats.netPnl));
 
 	const tradeBars = $derived.by(() => {
 		const closed = trades
@@ -451,6 +455,9 @@
 				<div class="flex items-center gap-2">
 					<FlaskIcon size={20} class="text-muted-foreground shrink-0" />
 					<h1 class="truncate text-2xl font-bold tracking-tight">{sess?.name ?? "—"}</h1>
+					{#if failStatus?.breached}
+						<span class="rounded-md bg-rose-700/10 px-2 py-0.5 text-[10px] font-medium uppercase text-rose-700 dark:text-rose-400">Failed</span>
+					{/if}
 					{#if sess?.archived}
 						<span class="rounded-md bg-muted px-2 py-0.5 text-[10px] uppercase text-muted-foreground">Archived</span>
 					{/if}
@@ -479,6 +486,31 @@
 				</Button>
 			</div>
 		</div>
+
+		{#if failStatus}
+			<div class={[
+				"rounded-md border px-4 py-3 text-sm flex items-start gap-3",
+				failStatus.breached
+					? "border-rose-700/40 bg-rose-700/10 text-rose-700 dark:text-rose-400"
+					: "border-amber-600/40 bg-amber-600/10 text-amber-700 dark:text-amber-400",
+			]}>
+				<WarningIcon size={18} weight="fill" class="mt-0.5 shrink-0" />
+				<div class="min-w-0 flex-1">
+					<div class="font-medium">
+						{#if failStatus.breached}
+							Max loss limit breached — session failed.
+						{:else}
+							Approaching max loss limit ({Math.round(failStatus.pct)}% used).
+						{/if}
+					</div>
+					<div class="text-xs opacity-90 mt-0.5">
+						Net P&amp;L: <span class="font-medium tabular-nums">{formatUsd(failStatus.netPnl)}</span>
+						· Limit: <span class="tabular-nums">{formatUsd(failStatus.limit)}</span>
+						· Buffer left: <span class="font-medium tabular-nums">{formatUsd(failStatus.buffer)}</span>
+					</div>
+				</div>
+			</div>
+		{/if}
 
 		<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
 			<div class="rounded-md border bg-background p-4">

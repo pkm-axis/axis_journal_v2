@@ -8,6 +8,7 @@ export interface BacktestSession {
     description: string | null;
     instrument_id: string | null;
     starting_balance: number | null;
+    max_loss_limit: number | null;
     period_start: string | null;
     period_end: string | null;
     notes: string | null;
@@ -24,11 +25,27 @@ export type BacktestSessionPayload = {
     description?: string | null;
     instrument_id?: string | null;
     starting_balance?: number | null;
+    max_loss_limit?: number | null;
     period_start?: string | null;
     period_end?: string | null;
     notes?: string | null;
     archived?: boolean;
 };
+
+/**
+ * Live "failed" status for a backtest session from its optional max loss limit.
+ * A session is failed when cumulative net P&L has dropped to -max_loss_limit.
+ * Returns null when no limit is set. Shape mirrors the trades page dailyLossStatus.
+ */
+export function backtestFailStatus(maxLossLimit: number | null | undefined, netPnl: number) {
+    if (maxLossLimit == null || maxLossLimit <= 0) return null;
+    const lossUsed = netPnl < 0 ? Math.abs(netPnl) : 0;
+    const buffer = Math.max(0, maxLossLimit - lossUsed);
+    const pct = Math.min(100, (lossUsed / maxLossLimit) * 100);
+    const breached = lossUsed >= maxLossLimit;
+    const danger = pct >= 70 && !breached;
+    return { limit: maxLossLimit, netPnl, lossUsed, buffer, pct, breached, danger };
+}
 
 function createBacktestSessionStore() {
     let loading = $state(false);

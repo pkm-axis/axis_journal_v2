@@ -13,7 +13,7 @@
 	import { DateTimePicker } from "$lib/components/ui/date-time-picker";
 	import { ArchiveIcon, FlaskIcon, PencilSimpleIcon, PlusIcon, TrashIcon } from "phosphor-svelte";
 	import { supabase } from "$lib/supabase/client";
-	import { backtestSessionStore, type BacktestSession } from "$lib/stores/backtest-sessions.svelte";
+	import { backtestSessionStore, backtestFailStatus, type BacktestSession } from "$lib/stores/backtest-sessions.svelte";
 	import { instrumentStore } from "$lib/stores/instruments.svelte";
 	import { toast } from "svelte-sonner";
 
@@ -26,6 +26,7 @@
 	let formDescription = $state("");
 	let formInstrumentId = $state<string | null>(null);
 	let formStartingBalance = $state("");
+	let formMaxLossLimit = $state("");
 	let formPeriodStart = $state<string | null>(null);
 	let formPeriodEnd = $state<string | null>(null);
 	let formNotes = $state("");
@@ -48,6 +49,7 @@
 		formDescription = "";
 		formInstrumentId = null;
 		formStartingBalance = "";
+		formMaxLossLimit = "";
 		formPeriodStart = null;
 		formPeriodEnd = null;
 		formNotes = "";
@@ -65,6 +67,7 @@
 		formDescription = s.description ?? "";
 		formInstrumentId = s.instrument_id;
 		formStartingBalance = s.starting_balance != null ? String(s.starting_balance) : "";
+		formMaxLossLimit = s.max_loss_limit != null ? String(s.max_loss_limit) : "";
 		formPeriodStart = s.period_start;
 		formPeriodEnd = s.period_end;
 		formNotes = s.notes ?? "";
@@ -84,6 +87,7 @@
 				description: formDescription.trim() || null,
 				instrument_id: formInstrumentId,
 				starting_balance: num(formStartingBalance),
+				max_loss_limit: num(formMaxLossLimit),
 				period_start: formPeriodStart ? new Date(formPeriodStart).toISOString() : null,
 				period_end: formPeriodEnd ? new Date(formPeriodEnd).toISOString() : null,
 				notes: formNotes.trim() || null,
@@ -221,6 +225,7 @@
 				{#each visibleSessions as s (s.id)}
 					{@const sym = instrumentSymbol(s.instrument_id)}
 					{@const netPnl = s.net_pnl ?? 0}
+					{@const failStatus = backtestFailStatus(s.max_loss_limit, netPnl)}
 					<div
 						class={[
 							"group rounded-md border bg-background p-4 transition-colors hover:bg-muted/30",
@@ -236,6 +241,9 @@
 								<div class="min-w-0">
 									<div class="flex items-center gap-2">
 										<span class="truncate text-sm font-semibold">{s.name}</span>
+										{#if failStatus?.breached}
+											<span class="rounded-md bg-rose-700/10 px-1.5 py-0.5 text-[10px] font-medium uppercase text-rose-700 dark:text-rose-400">Failed</span>
+										{/if}
 										{#if s.archived}
 											<span class="rounded-md bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">Archived</span>
 										{/if}
@@ -364,6 +372,12 @@
 					<div class="text-xs font-medium">Starting balance ($)</div>
 					<Input bind:value={formStartingBalance} inputmode="decimal" placeholder="Optional" class="rounded-md" />
 				</div>
+			</div>
+
+			<div class="space-y-1.5">
+				<div class="text-xs font-medium">Max loss limit ($)</div>
+				<Input bind:value={formMaxLossLimit} inputmode="decimal" placeholder="Optional" class="rounded-md" />
+				<p class="text-[11px] text-muted-foreground leading-snug">Optional — the session is marked failed if its net loss reaches this amount.</p>
 			</div>
 
 			<div class="grid grid-cols-2 gap-3">
