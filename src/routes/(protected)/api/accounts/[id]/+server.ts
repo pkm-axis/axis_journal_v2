@@ -52,8 +52,16 @@ export const PATCH: RequestHandler = async ({ params, request, locals: { supabas
 		}
 	}
 
-	// If switching away from "prop firm", null all prop firm fields to satisfy CHECK constraint.
-	if (patch.account_type && patch.account_type !== "prop firm") {
+	// Null fields that aren't permitted for the target account_type, to satisfy CHECK constraint.
+	// Paper trading keeps profit target and max drawdown only.
+	if (patch.account_type === "paper trading") {
+		patch.prop_firm_name = null;
+		patch.prop_firm_type = null;
+		patch.prop_firm_daily_loss_limit = null;
+		patch.prop_firm_consistency_rule = null;
+		patch.prop_firm_max_contracts = null;
+		patch.challenge_cost = null;
+	} else if (patch.account_type && patch.account_type !== "prop firm") {
 		patch.prop_firm_name = null;
 		patch.prop_firm_type = null;
 		patch.prop_firm_profit_target = null;
@@ -61,6 +69,7 @@ export const PATCH: RequestHandler = async ({ params, request, locals: { supabas
 		patch.prop_firm_daily_loss_limit = null;
 		patch.prop_firm_consistency_rule = null;
 		patch.prop_firm_max_contracts = null;
+		patch.challenge_cost = null;
 	}
 
 	if (Object.keys(patch).length === 0) {

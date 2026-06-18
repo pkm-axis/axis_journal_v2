@@ -227,14 +227,15 @@
 			</div>
 		{/if}
 
-		<!-- Prop firm rules (only for prop firm accounts) -->
-		{#if activeAccount && activeAccount.account_type === "prop firm" && !loading}
+		<!-- Prop firm rules (also shown for paper trading accounts) -->
+		{#if activeAccount && (activeAccount.account_type === "prop firm" || activeAccount.account_type === "paper trading") && !loading}
+			{@const isPropFirm = activeAccount.account_type === "prop firm"}
 			{@const fundedChild = accountStore.accounts.find((a) => a.parent_account_id === activeAccount.id) ?? null}
 			<PropFirmRules
 				account={activeAccount}
 				{trades}
-				onGraduate={fundedChild ? undefined : openGraduate}
-				graduatedTo={fundedChild}
+				onGraduate={isPropFirm && !fundedChild ? openGraduate : undefined}
+				graduatedTo={isPropFirm ? fundedChild : null}
 				onSwitchToGraduated={() => fundedChild && accountStore.setActiveAccountId(fundedChild.id)}
 			/>
 		{/if}

@@ -59,6 +59,8 @@
     let creatingAccount: boolean = $state(false);
     let createError: string | null = $state(null)
 
+    const hasTradingRules = $derived(accountType === 'prop firm' || accountType === 'paper trading');
+
     async function createAccount() {
         creatingAccount = true;
         createError = null;
@@ -66,14 +68,14 @@
         let payload = {
             name: accountName,
             account_type: accountType,
-            platform: accountPlatform,
+            platform: accountType === 'paper trading' ? null : accountPlatform,
             currency: accountCurrency,
             starting_balance: accountStartingBalance,
 
             prop_firm_name: accountType === 'prop firm' ? propFirmName : null,
             prop_firm_type: accountType === 'prop firm' ? propFirmType : null,
-            prop_firm_profit_target: accountType === 'prop firm' ? profitTarget : null,
-            prop_firm_max_drawdown: accountType === 'prop firm' ? maxDrawdown : null,
+            prop_firm_profit_target: hasTradingRules ? profitTarget : null,
+            prop_firm_max_drawdown: hasTradingRules ? maxDrawdown : null,
             prop_firm_daily_loss_limit: accountType === 'prop firm' ? dailyLossLimit : null,
             prop_firm_consistency_rule: accountType === 'prop firm' ? consistencyRule : null,
             prop_firm_max_contracts: accountType === 'prop firm' ? maxContracts : null,
@@ -177,6 +179,9 @@
                         <Select.Item value="prop firm" class="cursor-pointer">
                             Prop Firm
                         </Select.Item>
+                        <Select.Item value="paper trading" class="cursor-pointer">
+                            Paper Trading
+                        </Select.Item>
                         <Select.Item value="live" class="cursor-pointer" disabled>
                             Live (coming soon)
                         </Select.Item>
@@ -187,10 +192,12 @@
                 </Select.Root>
             </div>
 
-            <div class="space-y-1.5">
-                <div class="text-xs font-medium">Platform</div>
-                <Input bind:value={accountPlatform} placeholder="e.g. OKX, Tradovate, etc." class="rounded-md" />
-            </div>
+            {#if accountType !== 'paper trading'}
+                <div class="space-y-1.5">
+                    <div class="text-xs font-medium">Platform</div>
+                    <Input bind:value={accountPlatform} placeholder="e.g. OKX, Tradovate, etc." class="rounded-md" />
+                </div>
+            {/if}
 
             <div class="space-y-1.5">
                 <div class="text-xs font-medium">Currency</div>
@@ -227,10 +234,12 @@
                         </Select.Content>
                     </Select.Root>
                 </div>
+            {/if}
 
+            {#if hasTradingRules}
                 <div class="space-y-1.5">
-                    <div class="text-xs font-medium">{propFirmType === 'funded' ? 'Min. payout threshold ($)' : 'Profit Target'}</div>
-                    <Input bind:value={profitTarget} type="number" placeholder={propFirmType === 'funded' ? 'e.g. 2000' : '$3,000'} class="rounded-md" />
+                    <div class="text-xs font-medium">{accountType === 'prop firm' && propFirmType === 'funded' ? 'Min. payout threshold ($)' : 'Profit Target'}</div>
+                    <Input bind:value={profitTarget} type="number" placeholder={accountType === 'prop firm' && propFirmType === 'funded' ? 'e.g. 2000' : '$3,000'} class="rounded-md" />
                 </div>
 
                 <div class="space-y-1.5">
@@ -238,21 +247,25 @@
                     <Input bind:value={maxDrawdown} type="number" placeholder="$2,000" class="rounded-md" />
                 </div>
 
-                <div class="space-y-1.5">
-                    <div class="text-xs font-medium">Daily Loss Limit</div>
-                    <Input bind:value={dailyLossLimit} type="number" placeholder="$1,000 or None" class="rounded-md" />
-                </div>
+                {#if accountType === 'prop firm'}
+                    <div class="space-y-1.5">
+                        <div class="text-xs font-medium">Daily Loss Limit</div>
+                        <Input bind:value={dailyLossLimit} type="number" placeholder="$1,000 or None" class="rounded-md" />
+                    </div>
 
-                <div class="space-y-1.5">
-                    <div class="text-xs font-medium">Consistency Rule</div>
-                    <Input bind:value={consistencyRule} placeholder="50%" class="rounded-md" />
-                </div>
+                    <div class="space-y-1.5">
+                        <div class="text-xs font-medium">Consistency Rule</div>
+                        <Input bind:value={consistencyRule} placeholder="50%" class="rounded-md" />
+                    </div>
 
-                <div class="space-y-1.5">
-                    <div class="text-xs font-medium">Max Contracts</div>
-                    <Input bind:value={maxContracts} placeholder="4 minis/40 micros" class="rounded-md" />
-                </div>
+                    <div class="space-y-1.5">
+                        <div class="text-xs font-medium">Max Contracts</div>
+                        <Input bind:value={maxContracts} placeholder="4 minis/40 micros" class="rounded-md" />
+                    </div>
+                {/if}
+            {/if}
 
+            {#if accountType === 'prop firm'}
                 {#if propFirmType !== 'funded'}
                     <div class="space-y-1.5">
                         <div class="text-xs font-medium">Challenge cost ($)</div>

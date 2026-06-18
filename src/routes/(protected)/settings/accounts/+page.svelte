@@ -10,13 +10,18 @@
 	import { confirm } from "$lib/components/ui/confirm-dialog";
 	import { toast } from "svelte-sonner";
 
-	const ACCOUNT_TYPES = ["live", "demo", "prop firm", "paper"];
+	const ACCOUNT_TYPES: { value: string; label: string; disabled?: boolean }[] = [
+		{ value: "prop firm", label: "Prop Firm" },
+		{ value: "paper trading", label: "Paper Trading" },
+		{ value: "live", label: "Live (coming soon)", disabled: true },
+		{ value: "crypto", label: "Crypto (coming soon)", disabled: true },
+	];
 	const loading = $derived(accountStore.loading);
 
 	let dialogOpen = $state(false);
 	let editingId = $state<string | null>(null);
 	let formName = $state("");
-	let formType = $state<string>("live");
+	let formType = $state<string>("prop firm");
 	let formStartingBalance = $state<string>("");
 	let formPropFirmName = $state("");
 	let formPropFirmType = $state("");
@@ -30,6 +35,8 @@
 	let saving = $state(false);
 
 	const isPropFirm = $derived(formType === "prop firm");
+	const isPaperTrading = $derived(formType === "paper trading");
+	const hasTradingRules = $derived(isPropFirm || isPaperTrading);
 	const isFunded = $derived(formPropFirmType.trim().toLowerCase() === "funded");
 
 	// An account is "graduated" if another account points to it as parent.
@@ -43,7 +50,7 @@
 
 	function resetForm() {
 		formName = "";
-		formType = "live";
+		formType = "prop firm";
 		formStartingBalance = "";
 		formPropFirmName = "";
 		formPropFirmType = "";
@@ -67,7 +74,7 @@
 		editingId = a.id;
 		resetForm();
 		formName = a.name;
-		formType = a.account_type ?? "live";
+		formType = a.account_type ?? "prop firm";
 		formStartingBalance = a.starting_balance != null ? String(a.starting_balance) : "";
 		formPropFirmName = a.prop_firm_name ?? "";
 		formPropFirmType = a.prop_firm_type ?? "";
@@ -109,14 +116,18 @@
 				account_type: formType,
 				starting_balance: numOrNull(formStartingBalance),
 			};
-			if (isPropFirm) {
-				payload.prop_firm_name = strOrNull(formPropFirmName);
-				payload.prop_firm_type = strOrNull(formPropFirmType);
+			if (hasTradingRules) {
 				payload.prop_firm_profit_target = numOrNull(formProfitTarget);
 				payload.prop_firm_max_drawdown = numOrNull(formMaxDrawdown);
+			}
+			if (isPropFirm) {
 				payload.prop_firm_daily_loss_limit = numOrNull(formDailyLossLimit);
 				payload.prop_firm_consistency_rule = strOrNull(formConsistencyRule);
 				payload.prop_firm_max_contracts = strOrNull(formMaxContracts);
+			}
+			if (isPropFirm) {
+				payload.prop_firm_name = strOrNull(formPropFirmName);
+				payload.prop_firm_type = strOrNull(formPropFirmType);
 				payload.challenge_cost = numOrNull(formChallengeCost);
 				const rawSplit = parseFloat(String(formProfitSplit));
 				payload.profit_split = Number.isFinite(rawSplit) && rawSplit > 0 ? rawSplit / 100 : null;
@@ -324,11 +335,11 @@
 							<div class="text-xs font-medium">Type</div>
 							<Select.Root type="single" bind:value={formType}>
 								<Select.Trigger class="w-full rounded-md cursor-pointer">
-									<span class="capitalize">{formType}</span>
+									<span class="capitalize">{ACCOUNT_TYPES.find((t) => t.value === formType)?.label ?? formType}</span>
 								</Select.Trigger>
 								<Select.Content class="rounded-md">
 									{#each ACCOUNT_TYPES as t}
-										<Select.Item value={t} class="cursor-pointer capitalize">{t}</Select.Item>
+										<Select.Item value={t.value} disabled={t.disabled} class="cursor-pointer">{t.label}</Select.Item>
 									{/each}
 								</Select.Content>
 							</Select.Root>
@@ -356,7 +367,9 @@
 						</div>
 					</div>
 				</section>
+			{/if}
 
+			{#if hasTradingRules}
 				<!-- Trading rules -->
 				<section class="space-y-3 border-t pt-4">
 					<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Trading rules</h3>
@@ -372,22 +385,28 @@
 							<div class="text-xs font-medium">Max drawdown ($)</div>
 							<Input bind:value={formMaxDrawdown} type="number" inputmode="decimal" placeholder="2500" class="rounded-md" />
 						</div>
-						<div class="space-y-1.5">
-							<div class="text-xs font-medium">Daily loss limit ($)</div>
-							<Input bind:value={formDailyLossLimit} type="number" inputmode="decimal" placeholder="1500" class="rounded-md" />
-						</div>
-						<div class="space-y-1.5">
-							<div class="text-xs font-medium">Max contracts</div>
-							<Input bind:value={formMaxContracts} placeholder="e.g. 10" class="rounded-md" />
-						</div>
+						{#if isPropFirm}
+							<div class="space-y-1.5">
+								<div class="text-xs font-medium">Daily loss limit ($)</div>
+								<Input bind:value={formDailyLossLimit} type="number" inputmode="decimal" placeholder="1500" class="rounded-md" />
+							</div>
+							<div class="space-y-1.5">
+								<div class="text-xs font-medium">Max contracts</div>
+								<Input bind:value={formMaxContracts} placeholder="e.g. 10" class="rounded-md" />
+							</div>
+						{/if}
 					</div>
-					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Consistency rule</div>
-						<Input bind:value={formConsistencyRule} placeholder="e.g. 30% (best day max share of total profit)" class="rounded-md" />
-						<p class="text-[11px] text-muted-foreground">Enter the cap as a percentage (e.g. 30% or 0.3). Leave blank if not applicable.</p>
-					</div>
+					{#if isPropFirm}
+						<div class="space-y-1.5">
+							<div class="text-xs font-medium">Consistency rule</div>
+							<Input bind:value={formConsistencyRule} placeholder="e.g. 30% (best day max share of total profit)" class="rounded-md" />
+							<p class="text-[11px] text-muted-foreground">Enter the cap as a percentage (e.g. 30% or 0.3). Leave blank if not applicable.</p>
+						</div>
+					{/if}
 				</section>
+			{/if}
 
+			{#if isPropFirm}
 				<!-- Cost / payout -->
 				<section class="space-y-3 border-t pt-4">
 					<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
