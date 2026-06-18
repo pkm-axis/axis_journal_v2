@@ -106,7 +106,7 @@
 			type="time"
 			value={timeValue}
 			onchange={handleTimeChange}
-			class="w-[120px] rounded-md bg-background appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
+			class="w-[92px] rounded-md bg-background appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none [&::-webkit-calendar-picker-indicator]:w-0 [&::-webkit-calendar-picker-indicator]:p-0 [&::-webkit-calendar-picker-indicator]:m-0"
 		/>
 	{/if}
 	{#if clearable && value}

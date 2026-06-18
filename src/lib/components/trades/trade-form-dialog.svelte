@@ -190,16 +190,126 @@
 		tradeStep = 1;
 	}
 
-	// Initialize on open (populate for edit, reset for create); reset again on close.
+	// Persist new-trade drafts to localStorage so accidental dialog closes don't lose work.
+	const DRAFT_KEY = "trade-form-draft:v1";
+
+	function snapshotDraft() {
+		return {
+			formSymbol,
+			formSide,
+			formStatus,
+			formEntryPrice,
+			formQuantity,
+			formOpenedAt,
+			formExitPrice,
+			formClosedAt,
+			formPnl,
+			formStopLoss,
+			formTakeProfit,
+			formNotes,
+			formStrategyIds: [...formStrategyIds],
+			formMistakeIds: [...formMistakeIds],
+			formChecklistItemIds: [...formChecklistItemIds],
+			formRiskInput,
+			formProfitInput,
+			showRiskProfit,
+			riskUnit,
+			profitUnit,
+			useFills,
+			entryFills: entryFills.map((f) => ({ ...f })),
+			exitFills: exitFills.map((f) => ({ ...f })),
+			formEmotionalStates: [...formEmotionalStates],
+			formConfidence,
+			formMentalState,
+			formFollowedPlan,
+			formEntryReason,
+			formExitReason,
+			tradeStep,
+		};
+	}
+
+	function applyDraft(d: ReturnType<typeof snapshotDraft>) {
+		if (typeof d.formSymbol === "string") formSymbol = d.formSymbol;
+		if (d.formSide === "long" || d.formSide === "short") formSide = d.formSide;
+		if (d.formStatus === "open" || d.formStatus === "closed") formStatus = d.formStatus;
+		if (typeof d.formEntryPrice === "string") formEntryPrice = d.formEntryPrice;
+		if (typeof d.formQuantity === "string") formQuantity = d.formQuantity;
+		if (typeof d.formOpenedAt === "string") formOpenedAt = d.formOpenedAt;
+		if (typeof d.formExitPrice === "string") formExitPrice = d.formExitPrice;
+		if (d.formClosedAt === null || typeof d.formClosedAt === "string") formClosedAt = d.formClosedAt;
+		if (typeof d.formPnl === "string") formPnl = d.formPnl;
+		if (typeof d.formStopLoss === "string") formStopLoss = d.formStopLoss;
+		if (typeof d.formTakeProfit === "string") formTakeProfit = d.formTakeProfit;
+		if (typeof d.formNotes === "string") formNotes = d.formNotes;
+		if (Array.isArray(d.formStrategyIds)) formStrategyIds = d.formStrategyIds;
+		if (Array.isArray(d.formMistakeIds)) formMistakeIds = d.formMistakeIds;
+		if (Array.isArray(d.formChecklistItemIds)) formChecklistItemIds = d.formChecklistItemIds;
+		if (typeof d.formRiskInput === "string") formRiskInput = d.formRiskInput;
+		if (typeof d.formProfitInput === "string") formProfitInput = d.formProfitInput;
+		if (typeof d.showRiskProfit === "boolean") showRiskProfit = d.showRiskProfit;
+		if (d.riskUnit === "usd" || d.riskUnit === "ticks" || d.riskUnit === "points") riskUnit = d.riskUnit;
+		if (d.profitUnit === "usd" || d.profitUnit === "ticks" || d.profitUnit === "points") profitUnit = d.profitUnit;
+		if (typeof d.useFills === "boolean") useFills = d.useFills;
+		if (Array.isArray(d.entryFills)) entryFills = d.entryFills;
+		if (Array.isArray(d.exitFills)) exitFills = d.exitFills;
+		if (Array.isArray(d.formEmotionalStates)) formEmotionalStates = d.formEmotionalStates;
+		if (d.formConfidence === null || typeof d.formConfidence === "number") formConfidence = d.formConfidence;
+		if (typeof d.formMentalState === "string") formMentalState = d.formMentalState;
+		if (d.formFollowedPlan === null || d.formFollowedPlan === "yes" || d.formFollowedPlan === "no" || d.formFollowedPlan === "partial") {
+			formFollowedPlan = d.formFollowedPlan;
+		}
+		if (typeof d.formEntryReason === "string") formEntryReason = d.formEntryReason;
+		if (typeof d.formExitReason === "string") formExitReason = d.formExitReason;
+		if (d.tradeStep === 1 || d.tradeStep === 2 || d.tradeStep === 3) tradeStep = d.tradeStep;
+	}
+
+	function loadDraft(): boolean {
+		if (typeof window === "undefined") return false;
+		try {
+			const raw = localStorage.getItem(DRAFT_KEY);
+			if (!raw) return false;
+			applyDraft(JSON.parse(raw));
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	function clearDraft() {
+		if (typeof window === "undefined") return;
+		try {
+			localStorage.removeItem(DRAFT_KEY);
+		} catch {
+			// ignore
+		}
+	}
+
+	// Initialize on open (populate for edit, reset + restore draft for create); reset on close.
 	let formInitialized = $state(false);
 	$effect(() => {
 		if (open && !formInitialized) {
 			formInitialized = true;
-			if (editingTrade) loadFromTrade(editingTrade);
-			else resetNewTradeForm();
+			if (editingTrade) {
+				loadFromTrade(editingTrade);
+			} else {
+				resetNewTradeForm();
+				loadDraft();
+			}
 		} else if (!open && formInitialized) {
 			formInitialized = false;
 			resetNewTradeForm();
+		}
+	});
+
+	// Auto-save the new-trade draft to localStorage on every change while the dialog is open.
+	$effect(() => {
+		if (!open || !formInitialized || isEditingTrade) return;
+		const snapshot = snapshotDraft();
+		if (typeof window === "undefined") return;
+		try {
+			localStorage.setItem(DRAFT_KEY, JSON.stringify(snapshot));
+		} catch {
+			// ignore quota errors
 		}
 	});
 
@@ -404,6 +514,30 @@
 		return { qty: totalQty, avgPrice: notional / totalQty, count: rows.length };
 	});
 
+	/** Earliest entry-fill timestamp (ms). Drives opened_at when multi-fill is on. */
+	const entryFillsFirstAtMs = $derived.by(() => {
+		let best: number | null = null;
+		for (const f of entryFills) {
+			if (!f.at) continue;
+			const ms = new Date(f.at).getTime();
+			if (!Number.isFinite(ms)) continue;
+			if (best == null || ms < best) best = ms;
+		}
+		return best;
+	});
+
+	/** Latest exit-fill timestamp (ms). Drives closed_at when multi-fill is on. */
+	const exitFillsLastAtMs = $derived.by(() => {
+		let best: number | null = null;
+		for (const f of exitFills) {
+			if (!f.at) continue;
+			const ms = new Date(f.at).getTime();
+			if (!Number.isFinite(ms)) continue;
+			if (best == null || ms > best) best = ms;
+		}
+		return best;
+	});
+
 	/** When fills mode is on, mirror computed entry aggregates into the regular form fields. */
 	$effect(() => {
 		if (!useFills) return;
@@ -448,6 +582,13 @@
 		const entry = num(formEntryPrice);
 		const tp = num(formTakeProfit);
 		return entry != null && tp != null ? priceMovePnl(entry, tp) : null;
+	});
+
+	/** Default Closed at to "now" the first time the user marks the trade closed. */
+	$effect(() => {
+		if (formStatus === "closed" && !formClosedAt) {
+			formClosedAt = toDatetimeLocalValue(new Date());
+		}
 	});
 
 	/** When closed, set P&amp;L from exit/entry/qty if exit is filled; otherwise from risk × R:R. */
@@ -625,12 +766,20 @@
 		}
 
 		saving = true;
-		const openedAtIso = new Date(formOpenedAt).toISOString();
+		// In multi-fill mode, derive opened_at/closed_at from fill timestamps so the
+		// trade row and trade_executions can't disagree.
+		const openedAtIso =
+			useFills && entryFillsFirstAtMs != null
+				? new Date(entryFillsFirstAtMs).toISOString()
+				: new Date(formOpenedAt).toISOString();
 		const exitPrice = formStatus === "closed" ? (num(formExitPrice) ?? null) : null;
-		const closedAtIso =
-			formStatus === "closed" && formClosedAt?.trim()
-				? new Date(formClosedAt).toISOString()
-				: null;
+		const closedAtIso = (() => {
+			if (formStatus !== "closed") return null;
+			if (useFills) {
+				return exitFillsLastAtMs != null ? new Date(exitFillsLastAtMs).toISOString() : null;
+			}
+			return formClosedAt?.trim() ? new Date(formClosedAt).toISOString() : null;
+		})();
 
 		try {
 			if (editingTradeId) {
@@ -720,6 +869,7 @@
 				}
 			}
 
+			if (!editingTradeId) clearDraft();
 			open = false;
 			toast.success(editingTradeId ? "Trade updated." : "Trade saved.");
 		} catch (e) {
@@ -779,417 +929,439 @@
 
 <div class="flex-1 overflow-y-auto px-5 py-4 space-y-4">
 				{#if tradeStep === 1}
-					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Symbol</div>
-						<!-- <Input bind:value={formSymbol} placeholder="e.g. ES, BTCUSDT" class="rounded-md" /> -->
-                         <Select.Root type="single" bind:value={formSymbol}>
-                            <Select.Trigger class="w-full rounded-md cursor-pointer">
-                                <span class="capitalize">{formSymbol}</span>
-                            </Select.Trigger>
-                            <Select.Content class="rounded-md">
-                                {#each instrumentStore.instruments as instrument}
-                                    <Select.Item value={instrument.symbol} class="cursor-pointer">
-                                        {instrument.symbol}
-                                    </Select.Item>
-                                {:else}
-                                    <div class="px-2 py-3 text-center text-xs text-muted-foreground">No instruments yet.</div>
-                                {/each}
-                            </Select.Content>
-                         </Select.Root>
-					</div>
-
-					<div class="grid grid-cols-2 gap-3">
+					<!-- Instrument -->
+					<section class="space-y-3">
+						<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Instrument</h3>
 						<div class="space-y-1.5">
-							<div class="text-xs font-medium">Side</div>
-							<Select.Root type="single" bind:value={formSide}>
+							<div class="text-xs font-medium">Symbol</div>
+							<Select.Root type="single" bind:value={formSymbol}>
 								<Select.Trigger class="w-full rounded-md cursor-pointer">
-									<span class="capitalize">{formSide}</span>
+									<span class="capitalize">{formSymbol}</span>
 								</Select.Trigger>
 								<Select.Content class="rounded-md">
-									<Select.Item value="long" class="cursor-pointer">
-										<ChartLineUpIcon class="mr-2 h-4 w-4" />
-										Long
-									</Select.Item>
-									<Select.Item value="short" class="cursor-pointer">
-										<ChartLineDownIcon class="mr-2 h-4 w-4" />
-										Short
-									</Select.Item>
+									{#each instrumentStore.instruments as instrument}
+										<Select.Item value={instrument.symbol} class="cursor-pointer">
+											{instrument.symbol}
+										</Select.Item>
+									{:else}
+										<div class="px-2 py-3 text-center text-xs text-muted-foreground">No instruments yet.</div>
+									{/each}
 								</Select.Content>
 							</Select.Root>
 						</div>
-
-						<div class="space-y-1.5">
-							<div class="text-xs font-medium">Status</div>
-							<Select.Root type="single" bind:value={formStatus}>
-								<Select.Trigger class="w-full rounded-md cursor-pointer">
-									<span class="capitalize">{formStatus}</span>
-								</Select.Trigger>
-								<Select.Content class="rounded-md">
-									<Select.Item value="open" class="cursor-pointer">
-										<CaretUpIcon size={16} />
-										Open
-									</Select.Item>
-									<Select.Item value="closed" class="cursor-pointer">
-										<CaretDownIcon size={16} />
-										Closed
-									</Select.Item>
-								</Select.Content>
-							</Select.Root>
-						</div>
-					</div>
-
-					<label class="flex items-center gap-2 cursor-pointer select-none">
-						<input
-							type="checkbox"
-							class="rounded border-input cursor-pointer"
-							checked={useFills}
-							onchange={(e) => {
-								const on = (e.currentTarget as HTMLInputElement).checked;
-								useFills = on;
-								if (on && entryFills.length === 0) {
-									entryFills = [{ id: newFillId(), qty: formQuantity || "", price: formEntryPrice || "", at: formOpenedAt }];
-								}
-								if (on && formStatus === "closed" && exitFills.length === 0 && formExitPrice) {
-									exitFills = [{ id: newFillId(), qty: formQuantity || "", price: formExitPrice, at: formClosedAt ?? formOpenedAt }];
-								}
-							}}
-						/>
-						<span class="text-xs text-muted-foreground">Multiple fills (scale in / scale out)</span>
-					</label>
-
-					{#if !useFills}
 						<div class="grid grid-cols-2 gap-3">
 							<div class="space-y-1.5">
-								<div class="text-xs font-medium">Entry price</div>
-								<Input bind:value={formEntryPrice} inputmode="decimal" placeholder="Required" class="rounded-md" />
+								<div class="text-xs font-medium">Side</div>
+								<Select.Root type="single" bind:value={formSide}>
+									<Select.Trigger class="w-full rounded-md cursor-pointer">
+										<span class="capitalize">{formSide}</span>
+									</Select.Trigger>
+									<Select.Content class="rounded-md">
+										<Select.Item value="long" class="cursor-pointer">
+											<ChartLineUpIcon class="mr-2 h-4 w-4" />
+											Long
+										</Select.Item>
+										<Select.Item value="short" class="cursor-pointer">
+											<ChartLineDownIcon class="mr-2 h-4 w-4" />
+											Short
+										</Select.Item>
+									</Select.Content>
+								</Select.Root>
 							</div>
 							<div class="space-y-1.5">
-								<div class="text-xs font-medium">Quantity</div>
-								<Input bind:value={formQuantity} inputmode="decimal" placeholder="Required" class="rounded-md" />
+								<div class="text-xs font-medium">Status</div>
+								<Select.Root type="single" bind:value={formStatus}>
+									<Select.Trigger class="w-full rounded-md cursor-pointer">
+										<span class="capitalize">{formStatus}</span>
+									</Select.Trigger>
+									<Select.Content class="rounded-md">
+										<Select.Item value="open" class="cursor-pointer">
+											<CaretUpIcon size={16} />
+											Open
+										</Select.Item>
+										<Select.Item value="closed" class="cursor-pointer">
+											<CaretDownIcon size={16} />
+											Closed
+										</Select.Item>
+									</Select.Content>
+								</Select.Root>
 							</div>
 						</div>
-					{:else}
-						<div class="space-y-2 rounded-md border bg-muted/10 p-3">
-							<div class="flex items-center justify-between gap-2">
-								<div class="text-xs font-medium">Entry fills</div>
-								<div class="text-[11px] text-muted-foreground tabular-nums">
-									{#if entryFillsAgg}
-										{formatQty(entryFillsAgg.qty)} contracts · Avg {formatPrice(entryFillsAgg.avgPrice)}
-									{:else}
-										No fills yet
-									{/if}
-								</div>
-							</div>
+					</section>
 
-							{#each entryFills as fill, idx (fill.id)}
-								<div class="grid grid-cols-[1fr_1fr_minmax(0,1.4fr)_auto] gap-2 items-center">
-									<Input bind:value={entryFills[idx].qty} inputmode="decimal" placeholder="Qty" class="rounded-md h-8 text-xs" />
-									<Input bind:value={entryFills[idx].price} inputmode="decimal" placeholder="Price" class="rounded-md h-8 text-xs" />
-									<input
-										type="datetime-local"
-										bind:value={entryFills[idx].at}
-										class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring h-8 w-full rounded-md border px-2 py-1 text-xs shadow-xs outline-none focus-visible:ring-1"
-									/>
-									<Button
-										variant="ghost"
-										size="icon"
-										class="h-8 w-8 cursor-pointer text-rose-700 hover:bg-rose-700/10 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-400"
-										aria-label="Remove entry fill"
-										onclick={() => removeEntryFill(idx)}
-									>
-										<TrashIcon size={14} />
-									</Button>
-								</div>
-							{/each}
-
-							<Button
-								variant="outline"
-								size="sm"
-								class="h-7 rounded-md cursor-pointer text-xs"
-								onclick={addEntryFill}
-							>
-								<PlusIcon size={12} /> Add entry fill
-							</Button>
+					<!-- Entry -->
+					<section class="space-y-3 border-t pt-4">
+						<div class="flex items-center justify-between gap-2">
+							<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Entry</h3>
+							<label class="flex items-center gap-2 cursor-pointer select-none">
+								<input
+									type="checkbox"
+									class="rounded border-input cursor-pointer"
+									checked={useFills}
+									onchange={(e) => {
+										const on = (e.currentTarget as HTMLInputElement).checked;
+										useFills = on;
+										if (on && entryFills.length === 0) {
+											entryFills = [{ id: newFillId(), qty: formQuantity || "", price: formEntryPrice || "", at: formOpenedAt }];
+										}
+										if (on && formStatus === "closed" && exitFills.length === 0 && formExitPrice) {
+											exitFills = [{ id: newFillId(), qty: formQuantity || "", price: formExitPrice, at: formClosedAt ?? formOpenedAt }];
+										}
+									}}
+								/>
+								<span class="text-[11px] text-muted-foreground">Multiple fills</span>
+							</label>
 						</div>
-					{/if}
-
-					<div class="grid grid-cols-2 gap-3">
-						<div class="space-y-1.5">
-							<div class="flex items-baseline justify-between">
-								<div class="text-xs font-medium">Stop loss</div>
-							</div>
-							<Input
-								bind:value={formStopLoss}
-								inputmode="decimal"
-								placeholder="Required"
-								class="rounded-md"
-								oninput={() => { formRiskInput = ""; }}
-							/>
-							{#if stopDistance}
-								<p class="text-[11px] text-muted-foreground tabular-nums leading-snug">
-									{fmtDist(stopDistance.ticks, 1)} ticks · {fmtDist(stopDistance.points, 2)} pts{stopDistance.usd != null ? ` · ${formatUsd(stopDistance.usd)}` : ""}
-								</p>
-							{/if}
-						</div>
-						<div class="space-y-1.5">
-							<div class="flex items-baseline justify-between">
-								<div class="text-xs font-medium">Take profit</div>
-							</div>
-							<Input
-								bind:value={formTakeProfit}
-								inputmode="decimal"
-								placeholder="Required"
-								class="rounded-md"
-								oninput={() => { formProfitInput = ""; }}
-							/>
-							{#if takeProfitDistance}
-								<p class="text-[11px] text-muted-foreground tabular-nums leading-snug">
-									{fmtDist(takeProfitDistance.ticks, 1)} ticks · {fmtDist(takeProfitDistance.points, 2)} pts{takeProfitDistance.usd != null ? ` · ${formatUsd(takeProfitDistance.usd)}` : ""}
-								</p>
-							{/if}
-						</div>
-					</div>
-
-					<label class="flex items-center gap-2 cursor-pointer select-none">
-						<input type="checkbox" bind:checked={showRiskProfit} class="rounded border-input cursor-pointer" />
-						<span class="text-xs text-muted-foreground">Manually add risk and profit target</span>
-					</label>
-
-					{#if showRiskProfit}
-					{@const unitOptions: { value: DistUnit; label: string }[] = [
-						{ value: "usd", label: "$" },
-						{ value: "ticks", label: "ticks" },
-						{ value: "points", label: "pts" },
-					]}
-					{@const riskPlaceholder = riskUnit === "usd" ? "e.g. 250" : riskUnit === "ticks" ? "e.g. 20" : "e.g. 5"}
-					{@const profitPlaceholder = profitUnit === "usd" ? "e.g. 500" : profitUnit === "ticks" ? "e.g. 40" : "e.g. 10"}
-					<div class="grid grid-cols-2 gap-3">
-						<div class="space-y-1.5">
-							<div class="flex items-center justify-between gap-2">
-								<div class="text-xs font-medium">Risk</div>
-								<div class="inline-flex rounded-md border p-0.5 gap-0.5">
-									{#each unitOptions as opt}
-										<button
-											type="button"
-											class={[
-												"px-1.5 py-0.5 text-[10px] font-medium rounded-sm cursor-pointer transition-colors",
-												riskUnit === opt.value ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
-											]}
-											aria-pressed={riskUnit === opt.value}
-											onclick={() => (riskUnit = opt.value)}
-										>
-											{opt.label}
-										</button>
-									{/each}
-								</div>
-							</div>
-							<Input
-								bind:value={formRiskInput}
-								inputmode="decimal"
-								placeholder={riskPlaceholder}
-								class="rounded-md"
-							/>
-							{#if impliedStop != null}
-								<p class="text-[11px] text-emerald-700 dark:text-emerald-400 leading-snug">
-									→ Stop {impliedStop.toLocaleString(undefined, { maximumFractionDigits: 8 })}
-								</p>
-							{:else if formRiskInput && (num(formEntryPrice) == null || num(formQuantity) == null || !selectedInstrument)}
-								<p class="text-[11px] text-muted-foreground leading-snug">
-									Fill in entry, quantity, and instrument first.
-								</p>
-							{/if}
-						</div>
-
-						<div class="space-y-1.5">
-							<div class="flex items-center justify-between gap-2">
-								<div class="text-xs font-medium">Profit</div>
-								<div class="inline-flex rounded-md border p-0.5 gap-0.5">
-									{#each unitOptions as opt}
-										<button
-											type="button"
-											class={[
-												"px-1.5 py-0.5 text-[10px] font-medium rounded-sm cursor-pointer transition-colors",
-												profitUnit === opt.value ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
-											]}
-											aria-pressed={profitUnit === opt.value}
-											onclick={() => (profitUnit = opt.value)}
-										>
-											{opt.label}
-										</button>
-									{/each}
-								</div>
-							</div>
-							<Input
-								bind:value={formProfitInput}
-								inputmode="decimal"
-								placeholder={profitPlaceholder}
-								class="rounded-md"
-							/>
-							{#if impliedTakeProfit != null}
-								<p class="text-[11px] text-emerald-700 dark:text-emerald-400 leading-snug">
-									→ Target {impliedTakeProfit.toLocaleString(undefined, { maximumFractionDigits: 8 })}
-								</p>
-							{:else if formProfitInput && (num(formEntryPrice) == null || num(formQuantity) == null || !selectedInstrument)}
-								<p class="text-[11px] text-muted-foreground leading-snug">
-									Fill in entry, quantity, and instrument first.
-								</p>
-							{/if}
-						</div>
-					</div>
-					{/if}
-
-					<div class="rounded-md border bg-muted/30 px-3 py-2.5 text-xs">
-						<div class="grid grid-cols-3 gap-3 tabular-nums">
-							<div>
-								<div class="text-muted-foreground">Risk / reward</div>
-								<div class="mt-0.5 font-medium">{formatRiskReward(formPlannedRR)}</div>
-							</div>
-							<div>
-								<div class="text-muted-foreground">At target</div>
-								<div class="mt-0.5 font-medium text-emerald-700 dark:text-emerald-400">{formatUsd(pnlAtFullTarget)}</div>
-							</div>
-							<div>
-								<div class="text-muted-foreground">If stopped</div>
-								<div class="mt-0.5 font-medium text-rose-700 dark:text-rose-400">{formatUsd(stopLossPnL)}</div>
-							</div>
-						</div>
-						{#if formPlannedRR == null && num(formEntryPrice) != null && num(formStopLoss) != null && num(formTakeProfit) != null}
-							<div class="mt-1.5 text-[11px] text-muted-foreground">
-								Check side vs. stop/target levels.
-							</div>
-						{/if}
-					</div>
-
-					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Opened at</div>
-						<DateTimePicker
-							value={formOpenedAt}
-							onValueChange={(v) => (formOpenedAt = v ?? toDatetimeLocalValue(new Date()))}
-						/>
-					</div>
-
-					{#if formStatus === "closed"}
 						{#if !useFills}
 							<div class="grid grid-cols-2 gap-3">
 								<div class="space-y-1.5">
-									<div class="text-xs font-medium">Exit price</div>
-									<Input bind:value={formExitPrice} inputmode="decimal" placeholder="Optional" class="rounded-md" />
+									<div class="text-xs font-medium">Entry price</div>
+									<Input bind:value={formEntryPrice} type="number" inputmode="decimal" placeholder="Required" class="rounded-md" />
 								</div>
 								<div class="space-y-1.5">
-									<div class="text-xs font-medium">Closed at</div>
-									<DateTimePicker
-										value={formClosedAt}
-										onValueChange={(v) => (formClosedAt = v)}
-										clearable
-									/>
+									<div class="text-xs font-medium">Quantity</div>
+									<Input bind:value={formQuantity} type="number" inputmode="decimal" placeholder="Required" class="rounded-md" />
 								</div>
 							</div>
 						{:else}
 							<div class="space-y-2 rounded-md border bg-muted/10 p-3">
 								<div class="flex items-center justify-between gap-2">
-									<div class="text-xs font-medium">Exit fills</div>
+									<div class="text-[11px] font-medium text-muted-foreground">Entry fills</div>
 									<div class="text-[11px] text-muted-foreground tabular-nums">
-										{#if exitFillsAgg}
-											{formatQty(exitFillsAgg.qty)} contracts · Avg {formatPrice(exitFillsAgg.avgPrice)}
+										{#if entryFillsAgg}
+											{formatQty(entryFillsAgg.qty)} contracts · Avg {formatPrice(entryFillsAgg.avgPrice)}
 										{:else}
 											No fills yet
 										{/if}
 									</div>
 								</div>
-
-								{#each exitFills as fill, idx (fill.id)}
+								{#each entryFills as fill, idx (fill.id)}
 									<div class="grid grid-cols-[1fr_1fr_minmax(0,1.4fr)_auto] gap-2 items-center">
-										<Input bind:value={exitFills[idx].qty} inputmode="decimal" placeholder="Qty" class="rounded-md h-8 text-xs" />
-										<Input bind:value={exitFills[idx].price} inputmode="decimal" placeholder="Price" class="rounded-md h-8 text-xs" />
+										<Input bind:value={entryFills[idx].qty} type="number" inputmode="decimal" placeholder="Qty" class="rounded-md h-8 text-xs" />
+										<Input bind:value={entryFills[idx].price} type="number" inputmode="decimal" placeholder="Price" class="rounded-md h-8 text-xs" />
 										<input
 											type="datetime-local"
-											bind:value={exitFills[idx].at}
+											bind:value={entryFills[idx].at}
 											class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring h-8 w-full rounded-md border px-2 py-1 text-xs shadow-xs outline-none focus-visible:ring-1"
 										/>
 										<Button
 											variant="ghost"
 											size="icon"
 											class="h-8 w-8 cursor-pointer text-rose-700 hover:bg-rose-700/10 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-400"
-											aria-label="Remove exit fill"
-											onclick={() => removeExitFill(idx)}
+											aria-label="Remove entry fill"
+											onclick={() => removeEntryFill(idx)}
 										>
 											<TrashIcon size={14} />
 										</Button>
 									</div>
 								{/each}
-
 								<Button
 									variant="outline"
 									size="sm"
 									class="h-7 rounded-md cursor-pointer text-xs"
-									onclick={addExitFill}
+									onclick={addEntryFill}
 								>
-									<PlusIcon size={12} /> Add exit fill
+									<PlusIcon size={12} /> Add entry fill
 								</Button>
+							</div>
+						{/if}
+					</section>
 
-								{#if entryFillsAgg && exitFillsAgg && Math.abs(exitFillsAgg.qty - entryFillsAgg.qty) > 1e-9}
-									<p class="text-[11px] text-amber-700 dark:text-amber-400 leading-snug">
-										Exit qty ({formatQty(exitFillsAgg.qty)}) doesn't match entry qty ({formatQty(entryFillsAgg.qty)}).
+					<!-- Risk management -->
+					<section class="space-y-3 border-t pt-4">
+						<div class="flex items-center justify-between gap-2">
+							<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Risk management</h3>
+							<label class="flex items-center gap-2 cursor-pointer select-none">
+								<input type="checkbox" bind:checked={showRiskProfit} class="rounded border-input cursor-pointer" />
+								<span class="text-[11px] text-muted-foreground">Set by $ / ticks / pts</span>
+							</label>
+						</div>
+						<div class="grid grid-cols-2 gap-3">
+							<div class="space-y-1.5">
+								<div class="text-xs font-medium">Stop loss</div>
+								<Input
+									bind:value={formStopLoss}
+									type="number" inputmode="decimal"
+									placeholder="Required"
+									class="rounded-md"
+									oninput={() => { formRiskInput = ""; }}
+								/>
+								{#if stopDistance}
+									<p class="text-[11px] text-muted-foreground tabular-nums leading-snug">
+										{fmtDist(stopDistance.ticks, 1)} ticks · {fmtDist(stopDistance.points, 2)} pts{stopDistance.usd != null ? ` · ${formatUsd(stopDistance.usd)}` : ""}
 									</p>
 								{/if}
+							</div>
+							<div class="space-y-1.5">
+								<div class="text-xs font-medium">Take profit</div>
+								<Input
+									bind:value={formTakeProfit}
+									type="number" inputmode="decimal"
+									placeholder="Required"
+									class="rounded-md"
+									oninput={() => { formProfitInput = ""; }}
+								/>
+								{#if takeProfitDistance}
+									<p class="text-[11px] text-muted-foreground tabular-nums leading-snug">
+										{fmtDist(takeProfitDistance.ticks, 1)} ticks · {fmtDist(takeProfitDistance.points, 2)} pts{takeProfitDistance.usd != null ? ` · ${formatUsd(takeProfitDistance.usd)}` : ""}
+									</p>
+								{/if}
+							</div>
+						</div>
 
-								<div class="space-y-1.5 pt-1">
-									<div class="text-xs font-medium">Closed at</div>
-									<DateTimePicker
-										value={formClosedAt}
-										onValueChange={(v) => (formClosedAt = v)}
-										clearable
+						{#if showRiskProfit}
+							{@const unitOptions: { value: DistUnit; label: string }[] = [
+								{ value: "usd", label: "$" },
+								{ value: "ticks", label: "ticks" },
+								{ value: "points", label: "pts" },
+							]}
+							{@const riskPlaceholder = riskUnit === "usd" ? "e.g. 250" : riskUnit === "ticks" ? "e.g. 20" : "e.g. 5"}
+							{@const profitPlaceholder = profitUnit === "usd" ? "e.g. 500" : profitUnit === "ticks" ? "e.g. 40" : "e.g. 10"}
+							<div class="grid grid-cols-2 gap-3 rounded-md border bg-muted/10 p-3">
+								<div class="space-y-1.5">
+									<div class="flex items-center justify-between gap-2">
+										<div class="text-xs font-medium">Risk</div>
+										<div class="inline-flex rounded-md border p-0.5 gap-0.5">
+											{#each unitOptions as opt}
+												<button
+													type="button"
+													class={[
+														"px-1.5 py-0.5 text-[10px] font-medium rounded-sm cursor-pointer transition-colors",
+														riskUnit === opt.value ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
+													]}
+													aria-pressed={riskUnit === opt.value}
+													onclick={() => (riskUnit = opt.value)}
+												>
+													{opt.label}
+												</button>
+											{/each}
+										</div>
+									</div>
+									<Input
+										bind:value={formRiskInput}
+										type="number" inputmode="decimal"
+										placeholder={riskPlaceholder}
+										class="rounded-md"
 									/>
+									{#if impliedStop != null}
+										<p class="text-[11px] text-emerald-700 dark:text-emerald-400 leading-snug">
+											→ Stop {impliedStop.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+										</p>
+									{:else if formRiskInput && (num(formEntryPrice) == null || num(formQuantity) == null || !selectedInstrument)}
+										<p class="text-[11px] text-muted-foreground leading-snug">
+											Fill in entry, quantity, and instrument first.
+										</p>
+									{/if}
+								</div>
+								<div class="space-y-1.5">
+									<div class="flex items-center justify-between gap-2">
+										<div class="text-xs font-medium">Profit</div>
+										<div class="inline-flex rounded-md border p-0.5 gap-0.5">
+											{#each unitOptions as opt}
+												<button
+													type="button"
+													class={[
+														"px-1.5 py-0.5 text-[10px] font-medium rounded-sm cursor-pointer transition-colors",
+														profitUnit === opt.value ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
+													]}
+													aria-pressed={profitUnit === opt.value}
+													onclick={() => (profitUnit = opt.value)}
+												>
+													{opt.label}
+												</button>
+											{/each}
+										</div>
+									</div>
+									<Input
+										bind:value={formProfitInput}
+										type="number" inputmode="decimal"
+										placeholder={profitPlaceholder}
+										class="rounded-md"
+									/>
+									{#if impliedTakeProfit != null}
+										<p class="text-[11px] text-emerald-700 dark:text-emerald-400 leading-snug">
+											→ Target {impliedTakeProfit.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+										</p>
+									{:else if formProfitInput && (num(formEntryPrice) == null || num(formQuantity) == null || !selectedInstrument)}
+										<p class="text-[11px] text-muted-foreground leading-snug">
+											Fill in entry, quantity, and instrument first.
+										</p>
+									{/if}
 								</div>
 							</div>
 						{/if}
-					{/if}
 
-					{#if commissionPerSide > 0}
-						<div class="rounded-md border bg-muted/20 px-3 py-2 text-xs space-y-1">
-							<div class="flex items-center justify-between gap-2">
-								<span class="text-muted-foreground">Commission</span>
-								<span class="text-[11px] text-muted-foreground tabular-nums">
-									${commissionPerSide.toFixed(4)}/side × {num(formQuantity) ?? 0}
-								</span>
+						<div class="rounded-md border bg-muted/30 px-3 py-2.5 text-xs">
+							<div class="grid grid-cols-3 gap-3 tabular-nums">
+								<div>
+									<div class="text-muted-foreground">Risk / reward</div>
+									<div class="mt-0.5 font-medium">{formatRiskReward(formPlannedRR)}</div>
+								</div>
+								<div>
+									<div class="text-muted-foreground">At target</div>
+									<div class="mt-0.5 font-medium text-emerald-700 dark:text-emerald-400">{formatUsd(pnlAtFullTarget)}</div>
+								</div>
+								<div>
+									<div class="text-muted-foreground">If stopped</div>
+									<div class="mt-0.5 font-medium text-rose-700 dark:text-rose-400">{formatUsd(stopLossPnL)}</div>
+								</div>
 							</div>
-							<div class="flex items-center justify-between gap-2 tabular-nums">
-								<span>Entry</span>
-								<span class="text-rose-700 dark:text-rose-400">−{formatUsd(commissionBreakdown.entry)}</span>
-							</div>
-							{#if formStatus === "closed"}
-								<div class="flex items-center justify-between gap-2 tabular-nums">
-									<span>Exit</span>
-									<span class="text-rose-700 dark:text-rose-400">−{formatUsd(commissionBreakdown.exit)}</span>
+							{#if formPlannedRR == null && num(formEntryPrice) != null && num(formStopLoss) != null && num(formTakeProfit) != null}
+								<div class="mt-1.5 text-[11px] text-muted-foreground">
+									Check side vs. stop/target levels.
 								</div>
 							{/if}
-							<div class="flex items-center justify-between gap-2 border-t pt-1 mt-1 tabular-nums font-medium">
-								<span>Total deducted</span>
-								<span class="text-rose-700 dark:text-rose-400">−{formatUsd(commissionBreakdown.total)}</span>
-							</div>
 						</div>
-					{/if}
+					</section>
 
 					{#if formStatus === "closed"}
-						<div class="space-y-1.5">
-							<div class="text-xs font-medium">Net P&amp;L</div>
-							<Input bind:value={formPnl} inputmode="decimal" placeholder="Optional" class="rounded-md" />
-							<p class="text-[11px] text-muted-foreground leading-snug">
-								Auto-calculated as gross P&amp;L minus round-turn commission. Edit if you need
-								a different number (scaling, partials, manual fees).
-							</p>
-						</div>
+						<!-- Exit -->
+						<section class="space-y-3 border-t pt-4">
+							<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Exit</h3>
+							{#if !useFills}
+								<div class="space-y-1.5">
+									<div class="text-xs font-medium">Exit price</div>
+									<Input bind:value={formExitPrice} type="number" inputmode="decimal" placeholder="Optional" class="rounded-md" />
+								</div>
+							{:else}
+								<div class="space-y-2 rounded-md border bg-muted/10 p-3">
+									<div class="flex items-center justify-between gap-2">
+										<div class="text-[11px] font-medium text-muted-foreground">Exit fills</div>
+										<div class="text-[11px] text-muted-foreground tabular-nums">
+											{#if exitFillsAgg}
+												{formatQty(exitFillsAgg.qty)} contracts · Avg {formatPrice(exitFillsAgg.avgPrice)}
+											{:else}
+												No fills yet
+											{/if}
+										</div>
+									</div>
+									{#each exitFills as fill, idx (fill.id)}
+										<div class="grid grid-cols-[1fr_1fr_minmax(0,1.4fr)_auto] gap-2 items-center">
+											<Input bind:value={exitFills[idx].qty} type="number" inputmode="decimal" placeholder="Qty" class="rounded-md h-8 text-xs" />
+											<Input bind:value={exitFills[idx].price} type="number" inputmode="decimal" placeholder="Price" class="rounded-md h-8 text-xs" />
+											<input
+												type="datetime-local"
+												bind:value={exitFills[idx].at}
+												class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring h-8 w-full rounded-md border px-2 py-1 text-xs shadow-xs outline-none focus-visible:ring-1"
+											/>
+											<Button
+												variant="ghost"
+												size="icon"
+												class="h-8 w-8 cursor-pointer text-rose-700 hover:bg-rose-700/10 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-400"
+												aria-label="Remove exit fill"
+												onclick={() => removeExitFill(idx)}
+											>
+												<TrashIcon size={14} />
+											</Button>
+										</div>
+									{/each}
+									<Button
+										variant="outline"
+										size="sm"
+										class="h-7 rounded-md cursor-pointer text-xs"
+										onclick={addExitFill}
+									>
+										<PlusIcon size={12} /> Add exit fill
+									</Button>
+									{#if entryFillsAgg && exitFillsAgg && Math.abs(exitFillsAgg.qty - entryFillsAgg.qty) > 1e-9}
+										<p class="text-[11px] text-amber-700 dark:text-amber-400 leading-snug">
+											Exit qty ({formatQty(exitFillsAgg.qty)}) doesn't match entry qty ({formatQty(entryFillsAgg.qty)}).
+										</p>
+									{/if}
+								</div>
+							{/if}
+						</section>
 					{/if}
+
+					{#if commissionPerSide > 0 || formStatus === "closed"}
+						<!-- P&L -->
+						<section class="space-y-3 border-t pt-4">
+							<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">P&amp;L</h3>
+							{#if commissionPerSide > 0}
+								<div class="rounded-md border bg-muted/20 px-3 py-2 text-xs space-y-1">
+									<div class="flex items-center justify-between gap-2">
+										<span class="text-muted-foreground">Commission</span>
+										<span class="text-[11px] text-muted-foreground tabular-nums">
+											${commissionPerSide.toFixed(4)}/side × {num(formQuantity) ?? 0}
+										</span>
+									</div>
+									<div class="flex items-center justify-between gap-2 tabular-nums">
+										<span>Entry</span>
+										<span class="text-rose-700 dark:text-rose-400">−{formatUsd(commissionBreakdown.entry)}</span>
+									</div>
+									{#if formStatus === "closed"}
+										<div class="flex items-center justify-between gap-2 tabular-nums">
+											<span>Exit</span>
+											<span class="text-rose-700 dark:text-rose-400">−{formatUsd(commissionBreakdown.exit)}</span>
+										</div>
+									{/if}
+									<div class="flex items-center justify-between gap-2 border-t pt-1 mt-1 tabular-nums font-medium">
+										<span>Total deducted</span>
+										<span class="text-rose-700 dark:text-rose-400">−{formatUsd(commissionBreakdown.total)}</span>
+									</div>
+								</div>
+							{/if}
+							{#if formStatus === "closed"}
+								<div class="space-y-1.5">
+									<div class="text-xs font-medium">Net P&amp;L</div>
+									<Input bind:value={formPnl} type="number" inputmode="decimal" placeholder="Optional" class="rounded-md" />
+									<p class="text-[11px] text-muted-foreground leading-snug">
+										Auto-calculated as gross P&amp;L minus round-turn commission. Edit if you need
+										a different number (scaling, partials, manual fees).
+									</p>
+								</div>
+							{/if}
+						</section>
+					{/if}
+
+					<!-- Timing -->
+					<section class="space-y-3 border-t pt-4">
+						<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Timing</h3>
+						{#if !useFills}
+							<div class={formStatus === "closed" ? "grid grid-cols-2 gap-3" : "space-y-1.5"}>
+								<div class="space-y-1.5">
+									<div class="text-xs font-medium">Opened at</div>
+									<DateTimePicker
+										value={formOpenedAt}
+										onValueChange={(v) => (formOpenedAt = v ?? toDatetimeLocalValue(new Date()))}
+									/>
+								</div>
+								{#if formStatus === "closed"}
+									<div class="space-y-1.5">
+										<div class="text-xs font-medium">Closed at</div>
+										<DateTimePicker
+											value={formClosedAt}
+											onValueChange={(v) => (formClosedAt = v)}
+										/>
+									</div>
+								{/if}
+							</div>
+						{:else}
+							<div class="rounded-md border bg-muted/10 px-3 py-2 text-[11px] text-muted-foreground">
+								{#if entryFillsFirstAtMs != null}
+									Opened at <span class="text-foreground tabular-nums">{new Date(entryFillsFirstAtMs).toLocaleString()}</span>
+									<span class="ml-1">(from first entry fill)</span>
+									{#if formStatus === "closed" && exitFillsLastAtMs != null}
+										· Closed at <span class="text-foreground tabular-nums">{new Date(exitFillsLastAtMs).toLocaleString()}</span>
+										<span class="ml-1">(from last exit fill)</span>
+									{/if}
+								{:else}
+									Opened / closed times will be set from your fill timestamps.
+								{/if}
+							</div>
+						{/if}
+					</section>
 
 					{#if checklistStore.items.length > 0}
 						{@const total = checklistStore.items.length}
 						{@const checked = formChecklistItemIds.length}
 						{@const allChecked = checked === total}
-						<div class="space-y-1.5 rounded-md border p-3">
+						<!-- Checklist -->
+						<section class="space-y-3 border-t pt-4">
 							<div class="flex items-center justify-between gap-2">
 								<div>
-									<div class="text-xs font-medium">Pre-trade checklist</div>
-									<p class="text-[11px] text-muted-foreground leading-snug">Confirm your rules before saving. {checked}/{total} checked.</p>
+									<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pre-trade checklist</h3>
+									<p class="text-[11px] text-muted-foreground leading-snug mt-1">Confirm your rules before saving. {checked}/{total} checked.</p>
 								</div>
 								<button
 									type="button"
@@ -1201,7 +1373,7 @@
 									{allChecked ? "Uncheck all" : "Check all"}
 								</button>
 							</div>
-							<div class="space-y-1">
+							<div class="space-y-1 rounded-md border p-2">
 								{#each checklistStore.items as item (item.id)}
 									{@const on = formChecklistItemIds.includes(item.id)}
 									<label class="flex items-start gap-2 cursor-pointer rounded-md px-1 py-1 hover:bg-muted/40">
@@ -1219,199 +1391,215 @@
 									</label>
 								{/each}
 							</div>
-						</div>
+						</section>
 					{/if}
 				{/if}
 
 				{#if tradeStep === 2}
-					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Why did you enter the trade?</div>
-						<p class="text-[11px] text-muted-foreground leading-snug">The thesis or setup that triggered your entry — capture it before the outcome biases your memory.</p>
-						<textarea
-							bind:value={formEntryReason}
-							rows="3"
-							class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[72px] w-full rounded-md border px-3 py-2 text-xs shadow-xs outline-none focus-visible:ring-1 disabled:cursor-not-allowed disabled:opacity-50"
-							placeholder="e.g. Pullback to VWAP after liquidity sweep, trend intact on HTF…"
-						></textarea>
-					</div>
-
-					{#if formStatus === "closed"}
+					<!-- Reasoning -->
+					<section class="space-y-3">
+						<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Reasoning</h3>
 						<div class="space-y-1.5">
-							<div class="text-xs font-medium">Why did you exit the trade?</div>
-							<p class="text-[11px] text-muted-foreground leading-snug">What actually got you out — target, stop, invalidation, or a discretionary call.</p>
+							<div class="text-xs font-medium">Why did you enter the trade?</div>
+							<p class="text-[11px] text-muted-foreground leading-snug">The thesis or setup that triggered your entry — capture it before the outcome biases your memory.</p>
 							<textarea
-								bind:value={formExitReason}
+								bind:value={formEntryReason}
 								rows="3"
 								class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[72px] w-full rounded-md border px-3 py-2 text-xs shadow-xs outline-none focus-visible:ring-1 disabled:cursor-not-allowed disabled:opacity-50"
-								placeholder="e.g. Hit take profit, scratched on momentum stall, panicked out early…"
+								placeholder="e.g. Pullback to VWAP after liquidity sweep, trend intact on HTF…"
 							></textarea>
 						</div>
-					{/if}
 
-					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Emotional state</div>
-						<p class="text-[11px] text-muted-foreground leading-snug">Pick all that applied at the moment of placing this trade.</p>
-						<div class="flex flex-wrap gap-1.5 pt-1">
-							{#each EMOTIONAL_STATES as e}
-								{@const on = formEmotionalStates.includes(e)}
-								<button
-									type="button"
-									onclick={() => toggleEmotionalState(e)}
-									class={[
-										"rounded-md border px-2.5 py-1 text-xs capitalize cursor-pointer transition-colors",
-										on
-											? "border-primary bg-primary/10 text-primary"
-											: "border-input bg-background text-muted-foreground hover:bg-muted/50"
-									]}
-								>
-									{e}
-								</button>
-							{/each}
+						{#if formStatus === "closed"}
+							<div class="space-y-1.5">
+								<div class="text-xs font-medium">Why did you exit the trade?</div>
+								<p class="text-[11px] text-muted-foreground leading-snug">What actually got you out — target, stop, invalidation, or a discretionary call.</p>
+								<textarea
+									bind:value={formExitReason}
+									rows="3"
+									class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[72px] w-full rounded-md border px-3 py-2 text-xs shadow-xs outline-none focus-visible:ring-1 disabled:cursor-not-allowed disabled:opacity-50"
+									placeholder="e.g. Hit take profit, scratched on momentum stall, panicked out early…"
+								></textarea>
+							</div>
+						{/if}
+					</section>
+
+					<!-- State of mind -->
+					<section class="space-y-3 border-t pt-4">
+						<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">State of mind</h3>
+						<div class="space-y-1.5">
+							<div class="text-xs font-medium">Emotional state</div>
+							<p class="text-[11px] text-muted-foreground leading-snug">Pick all that applied at the moment of placing this trade.</p>
+							<div class="flex flex-wrap gap-1.5 pt-1">
+								{#each EMOTIONAL_STATES as e}
+									{@const on = formEmotionalStates.includes(e)}
+									<button
+										type="button"
+										onclick={() => toggleEmotionalState(e)}
+										class={[
+											"rounded-md border px-2.5 py-1 text-xs capitalize cursor-pointer transition-colors",
+											on
+												? "border-primary bg-primary/10 text-primary"
+												: "border-input bg-background text-muted-foreground hover:bg-muted/50"
+										]}
+									>
+										{e}
+									</button>
+								{/each}
+							</div>
 						</div>
-					</div>
 
-					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Confidence</div>
-						<div class="flex items-center gap-1.5">
-							{#each [1, 2, 3, 4, 5] as n}
-								{@const on = formConfidence === n}
-								<button
-									type="button"
-									onclick={() => (formConfidence = on ? null : n)}
-									class={[
-										"flex h-9 w-9 items-center justify-center rounded-md border text-sm font-medium tabular-nums cursor-pointer transition-colors",
-										on
-											? "border-primary bg-primary text-primary-foreground"
-											: "border-input bg-background text-muted-foreground hover:bg-muted/50"
-									]}
-								>
-									{n}
-								</button>
-							{/each}
-							<span class="ml-2 text-[11px] text-muted-foreground">1 = uncertain · 5 = high conviction</span>
+						<div class="space-y-1.5">
+							<div class="text-xs font-medium">Confidence</div>
+							<div class="flex items-center gap-1.5">
+								{#each [1, 2, 3, 4, 5] as n}
+									{@const on = formConfidence === n}
+									<button
+										type="button"
+										onclick={() => (formConfidence = on ? null : n)}
+										class={[
+											"flex h-9 w-9 items-center justify-center rounded-md border text-sm font-medium tabular-nums cursor-pointer transition-colors",
+											on
+												? "border-primary bg-primary text-primary-foreground"
+												: "border-input bg-background text-muted-foreground hover:bg-muted/50"
+										]}
+									>
+										{n}
+									</button>
+								{/each}
+								<span class="ml-2 text-[11px] text-muted-foreground">1 = uncertain · 5 = high conviction</span>
+							</div>
 						</div>
-					</div>
 
-					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Followed your plan?</div>
-						<div class="flex gap-1.5">
-							{#each [{ v: "yes", l: "Yes" }, { v: "partial", l: "Partial" }, { v: "no", l: "No" }] as opt}
-								{@const on = formFollowedPlan === opt.v}
-								<button
-									type="button"
-									onclick={() => (formFollowedPlan = on ? null : (opt.v as "yes" | "no" | "partial"))}
-									class={[
-										"flex-1 rounded-md border px-3 py-2 text-xs font-medium cursor-pointer transition-colors",
-										on
-											? "border-primary bg-primary/10 text-primary"
-											: "border-input bg-background text-muted-foreground hover:bg-muted/50"
-									]}
-								>
-									{opt.l}
-								</button>
-							{/each}
+						<div class="space-y-1.5">
+							<div class="text-xs font-medium">Followed your plan?</div>
+							<div class="flex gap-1.5">
+								{#each [{ v: "yes", l: "Yes" }, { v: "partial", l: "Partial" }, { v: "no", l: "No" }] as opt}
+									{@const on = formFollowedPlan === opt.v}
+									<button
+										type="button"
+										onclick={() => (formFollowedPlan = on ? null : (opt.v as "yes" | "no" | "partial"))}
+										class={[
+											"flex-1 rounded-md border px-3 py-2 text-xs font-medium cursor-pointer transition-colors",
+											on
+												? "border-primary bg-primary/10 text-primary"
+												: "border-input bg-background text-muted-foreground hover:bg-muted/50"
+										]}
+									>
+										{opt.l}
+									</button>
+								{/each}
+							</div>
 						</div>
-					</div>
 
-					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Mental / physical state</div>
-						<textarea
-							bind:value={formMentalState}
-							rows="3"
-							class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[72px] w-full rounded-md border px-3 py-2 text-xs shadow-xs outline-none focus-visible:ring-1 disabled:cursor-not-allowed disabled:opacity-50"
-							placeholder="e.g. tired, well-rested, distracted, focused…"
-						></textarea>
-					</div>
+						<div class="space-y-1.5">
+							<div class="text-xs font-medium">Mental / physical state</div>
+							<textarea
+								bind:value={formMentalState}
+								rows="3"
+								class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[72px] w-full rounded-md border px-3 py-2 text-xs shadow-xs outline-none focus-visible:ring-1 disabled:cursor-not-allowed disabled:opacity-50"
+								placeholder="e.g. tired, well-rested, distracted, focused…"
+							></textarea>
+						</div>
+					</section>
 				{/if}
 
 				{#if tradeStep === 3}
-					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Strategies</div>
-						<MultiSelect
-							bind:selected={formStrategyIds}
-							options={strategyStore.strategies.map((s) => ({ value: s.id, label: s.name }))}
-							placeholder={strategyStore.strategies.length === 0
-								? "Create one in Strategies & Mistakes"
-								: "Tag strategies used"}
-							emptyText="No strategies yet — add some in Strategies & Mistakes."
-						/>
-					</div>
-
-					{#if formStatus === "closed"}
+					<!-- Tags -->
+					<section class="space-y-3">
+						<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tags</h3>
 						<div class="space-y-1.5">
-							<div class="text-xs font-medium">Mistakes</div>
+							<div class="text-xs font-medium">Strategies</div>
 							<MultiSelect
-								bind:selected={formMistakeIds}
-								options={mistakeStore.mistakes.map((m) => ({ value: m.id, label: m.name }))}
-								placeholder={mistakeStore.mistakes.length === 0
+								bind:selected={formStrategyIds}
+								options={strategyStore.strategies.map((s) => ({ value: s.id, label: s.name }))}
+								placeholder={strategyStore.strategies.length === 0
 									? "Create one in Strategies & Mistakes"
-									: "Tag mistakes made (post-trade)"}
-								emptyText="No mistakes catalogued yet."
+									: "Tag strategies used"}
+								emptyText="No strategies yet — add some in Strategies & Mistakes."
 							/>
-							<p class="text-[11px] text-muted-foreground leading-snug">
-								Reviewed only after closing — what would you do differently?
-							</p>
 						</div>
-					{/if}
 
-					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Notes</div>
-						<textarea
-							bind:value={formNotes}
-							rows="3"
-							class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[72px] w-full rounded-md border px-3 py-2 text-xs shadow-xs outline-none focus-visible:ring-1 disabled:cursor-not-allowed disabled:opacity-50"
-							placeholder="Optional"
-						></textarea>
-					</div>
-
-					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Screenshot</div>
-						{#if formScreenshotPreview || formExistingScreenshotUrl}
-							<div class="relative rounded-md overflow-hidden border">
-								<img
-									src={formScreenshotPreview ?? formExistingScreenshotUrl ?? ""}
-									alt="Trade screenshot preview"
-									class="w-full max-h-48 object-cover"
+						{#if formStatus === "closed"}
+							<div class="space-y-1.5">
+								<div class="text-xs font-medium">Mistakes</div>
+								<MultiSelect
+									bind:selected={formMistakeIds}
+									options={mistakeStore.mistakes.map((m) => ({ value: m.id, label: m.name }))}
+									placeholder={mistakeStore.mistakes.length === 0
+										? "Create one in Strategies & Mistakes"
+										: "Tag mistakes made (post-trade)"}
+									emptyText="No mistakes catalogued yet."
 								/>
-								<button
-									type="button"
-									class="absolute top-1.5 right-1.5 rounded-md bg-background/80 p-1 text-xs text-muted-foreground hover:bg-background cursor-pointer border"
-									onclick={() => {
-										formScreenshotFile = null;
-										formScreenshotPreview = null;
-										formExistingScreenshotUrl = null;
-									}}
-								>
-									Remove
-								</button>
+								<p class="text-[11px] text-muted-foreground leading-snug">
+									Reviewed only after closing — what would you do differently?
+								</p>
 							</div>
-						{:else}
-							<label
-								class="flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-md border border-dashed p-5 text-center hover:bg-muted/40 transition-colors"
-							>
-								<input
-									type="file"
-									accept="image/*"
-									class="sr-only"
-									onchange={(e) => {
-										const file = (e.currentTarget as HTMLInputElement).files?.[0] ?? null;
-										formScreenshotFile = file;
-										if (file) {
-											const reader = new FileReader();
-											reader.onload = (ev) => {
-												formScreenshotPreview = (ev.target?.result as string) ?? null;
-											};
-											reader.readAsDataURL(file);
-										} else {
-											formScreenshotPreview = null;
-										}
-									}}
-								/>
-								<span class="text-xs text-muted-foreground">Click to upload a screenshot</span>
-								<span class="text-[10px] text-muted-foreground">PNG, JPG, WEBP</span>
-							</label>
 						{/if}
-					</div>
+					</section>
+
+					<!-- Notes & screenshot -->
+					<section class="space-y-3 border-t pt-4">
+						<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Notes & screenshot</h3>
+						<div class="space-y-1.5">
+							<div class="text-xs font-medium">Notes</div>
+							<textarea
+								bind:value={formNotes}
+								rows="3"
+								class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[72px] w-full rounded-md border px-3 py-2 text-xs shadow-xs outline-none focus-visible:ring-1 disabled:cursor-not-allowed disabled:opacity-50"
+								placeholder="Optional"
+							></textarea>
+						</div>
+
+						<div class="space-y-1.5">
+							<div class="text-xs font-medium">Screenshot</div>
+							{#if formScreenshotPreview || formExistingScreenshotUrl}
+								<div class="relative rounded-md overflow-hidden border">
+									<img
+										src={formScreenshotPreview ?? formExistingScreenshotUrl ?? ""}
+										alt="Trade screenshot preview"
+										class="w-full max-h-48 object-cover"
+									/>
+									<button
+										type="button"
+										class="absolute top-1.5 right-1.5 rounded-md bg-background/80 p-1 text-xs text-muted-foreground hover:bg-background cursor-pointer border"
+										onclick={() => {
+											formScreenshotFile = null;
+											formScreenshotPreview = null;
+											formExistingScreenshotUrl = null;
+										}}
+									>
+										Remove
+									</button>
+								</div>
+							{:else}
+								<label
+									class="flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-md border border-dashed p-5 text-center hover:bg-muted/40 transition-colors"
+								>
+									<input
+										type="file"
+										accept="image/*"
+										class="sr-only"
+										onchange={(e) => {
+											const file = (e.currentTarget as HTMLInputElement).files?.[0] ?? null;
+											formScreenshotFile = file;
+											if (file) {
+												const reader = new FileReader();
+												reader.onload = (ev) => {
+													formScreenshotPreview = (ev.target?.result as string) ?? null;
+												};
+												reader.readAsDataURL(file);
+											} else {
+												formScreenshotPreview = null;
+											}
+										}}
+									/>
+									<span class="text-xs text-muted-foreground">Click to upload a screenshot</span>
+									<span class="text-[10px] text-muted-foreground">PNG, JPG, WEBP</span>
+								</label>
+							{/if}
+						</div>
+					</section>
 				{/if}
 				</div>
 
@@ -1462,3 +1650,16 @@
 				</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
+
+<style>
+	/* Hide native number spinners on price/qty inputs inside this dialog. */
+	:global(input[type="number"]::-webkit-outer-spin-button),
+	:global(input[type="number"]::-webkit-inner-spin-button) {
+		-webkit-appearance: none;
+		margin: 0;
+	}
+	:global(input[type="number"]) {
+		-moz-appearance: textfield;
+		appearance: textfield;
+	}
+</style>
