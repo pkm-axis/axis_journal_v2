@@ -75,7 +75,7 @@
 	}
 </script>
 
-<div class={cn("flex gap-2", className)}>
+<div class={cn("flex", className)}>
 	<Popover.Root>
 		<Popover.Trigger>
 			{#snippet child({ props })}
@@ -83,7 +83,8 @@
 					{...props}
 					variant="outline"
 					class={cn(
-						"flex-1 justify-start rounded-md text-left font-normal cursor-pointer",
+						"flex-1 justify-start text-left font-normal cursor-pointer",
+						dateOnly ? "rounded-md" : "rounded-md rounded-r-none border-r-0",
 						!value && "text-muted-foreground"
 					)}
 				>
@@ -106,7 +107,7 @@
 			type="time"
 			value={timeValue}
 			onchange={handleTimeChange}
-			class="w-[120px] rounded-md bg-background appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
+			class="w-[88px] rounded-md rounded-l-none bg-background appearance-none px-2 [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
 		/>
 	{/if}
 	{#if clearable && value}

@@ -404,6 +404,30 @@
 		return { qty: totalQty, avgPrice: notional / totalQty, count: rows.length };
 	});
 
+	/** Earliest entry-fill timestamp (ms). Drives opened_at when multi-fill is on. */
+	const entryFillsFirstAtMs = $derived.by(() => {
+		let best: number | null = null;
+		for (const f of entryFills) {
+			if (!f.at) continue;
+			const ms = new Date(f.at).getTime();
+			if (!Number.isFinite(ms)) continue;
+			if (best == null || ms < best) best = ms;
+		}
+		return best;
+	});
+
+	/** Latest exit-fill timestamp (ms). Drives closed_at when multi-fill is on. */
+	const exitFillsLastAtMs = $derived.by(() => {
+		let best: number | null = null;
+		for (const f of exitFills) {
+			if (!f.at) continue;
+			const ms = new Date(f.at).getTime();
+			if (!Number.isFinite(ms)) continue;
+			if (best == null || ms > best) best = ms;
+		}
+		return best;
+	});
+
 	/** When fills mode is on, mirror computed entry aggregates into the regular form fields. */
 	$effect(() => {
 		if (!useFills) return;
@@ -448,6 +472,13 @@
 		const entry = num(formEntryPrice);
 		const tp = num(formTakeProfit);
 		return entry != null && tp != null ? priceMovePnl(entry, tp) : null;
+	});
+
+	/** Default closed_at to now when the trade flips to closed and the field is empty. */
+	$effect(() => {
+		if (formStatus === "closed" && (formClosedAt == null || formClosedAt.trim() === "")) {
+			formClosedAt = toDatetimeLocalValue(new Date());
+		}
 	});
 
 	/** When closed, set P&amp;L from exit/entry/qty if exit is filled; otherwise from risk × R:R. */
@@ -625,12 +656,20 @@
 		}
 
 		saving = true;
-		const openedAtIso = new Date(formOpenedAt).toISOString();
+		// Multi-fill mode: derive opened_at/closed_at from fill timestamps so the
+		// trade row and trade_executions can't disagree.
+		const openedAtIso =
+			useFills && entryFillsFirstAtMs != null
+				? new Date(entryFillsFirstAtMs).toISOString()
+				: new Date(formOpenedAt).toISOString();
 		const exitPrice = formStatus === "closed" ? (num(formExitPrice) ?? null) : null;
-		const closedAtIso =
-			formStatus === "closed" && formClosedAt?.trim()
-				? new Date(formClosedAt).toISOString()
-				: null;
+		const closedAtIso = (() => {
+			if (formStatus !== "closed") return null;
+			if (useFills) {
+				return exitFillsLastAtMs != null ? new Date(exitFillsLastAtMs).toISOString() : null;
+			}
+			return formClosedAt?.trim() ? new Date(formClosedAt).toISOString() : null;
+		})();
 
 		try {
 			if (editingTradeId) {
@@ -779,417 +818,446 @@
 
 <div class="flex-1 overflow-y-auto px-5 py-4 space-y-4">
 				{#if tradeStep === 1}
-					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Symbol</div>
-						<!-- <Input bind:value={formSymbol} placeholder="e.g. ES, BTCUSDT" class="rounded-md" /> -->
-                         <Select.Root type="single" bind:value={formSymbol}>
-                            <Select.Trigger class="w-full rounded-md cursor-pointer">
-                                <span class="capitalize">{formSymbol}</span>
-                            </Select.Trigger>
-                            <Select.Content class="rounded-md">
-                                {#each instrumentStore.instruments as instrument}
-                                    <Select.Item value={instrument.symbol} class="cursor-pointer">
-                                        {instrument.symbol}
-                                    </Select.Item>
-                                {:else}
-                                    <div class="px-2 py-3 text-center text-xs text-muted-foreground">No instruments yet.</div>
-                                {/each}
-                            </Select.Content>
-                         </Select.Root>
-					</div>
-
-					<div class="grid grid-cols-2 gap-3">
+					<!-- Instrument -->
+					<section class="space-y-3">
+						<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Instrument</h3>
 						<div class="space-y-1.5">
-							<div class="text-xs font-medium">Side</div>
-							<Select.Root type="single" bind:value={formSide}>
+							<div class="text-xs font-medium">Symbol</div>
+							<Select.Root type="single" bind:value={formSymbol}>
 								<Select.Trigger class="w-full rounded-md cursor-pointer">
-									<span class="capitalize">{formSide}</span>
+									<span class="capitalize">{formSymbol}</span>
 								</Select.Trigger>
 								<Select.Content class="rounded-md">
-									<Select.Item value="long" class="cursor-pointer">
-										<ChartLineUpIcon class="mr-2 h-4 w-4" />
-										Long
-									</Select.Item>
-									<Select.Item value="short" class="cursor-pointer">
-										<ChartLineDownIcon class="mr-2 h-4 w-4" />
-										Short
-									</Select.Item>
+									{#each instrumentStore.instruments as instrument}
+										<Select.Item value={instrument.symbol} class="cursor-pointer">
+											{instrument.symbol}
+										</Select.Item>
+									{:else}
+										<div class="px-2 py-3 text-center text-xs text-muted-foreground">No instruments yet.</div>
+									{/each}
 								</Select.Content>
 							</Select.Root>
 						</div>
-
-						<div class="space-y-1.5">
-							<div class="text-xs font-medium">Status</div>
-							<Select.Root type="single" bind:value={formStatus}>
-								<Select.Trigger class="w-full rounded-md cursor-pointer">
-									<span class="capitalize">{formStatus}</span>
-								</Select.Trigger>
-								<Select.Content class="rounded-md">
-									<Select.Item value="open" class="cursor-pointer">
-										<CaretUpIcon size={16} />
-										Open
-									</Select.Item>
-									<Select.Item value="closed" class="cursor-pointer">
-										<CaretDownIcon size={16} />
-										Closed
-									</Select.Item>
-								</Select.Content>
-							</Select.Root>
-						</div>
-					</div>
-
-					<label class="flex items-center gap-2 cursor-pointer select-none">
-						<input
-							type="checkbox"
-							class="rounded border-input cursor-pointer"
-							checked={useFills}
-							onchange={(e) => {
-								const on = (e.currentTarget as HTMLInputElement).checked;
-								useFills = on;
-								if (on && entryFills.length === 0) {
-									entryFills = [{ id: newFillId(), qty: formQuantity || "", price: formEntryPrice || "", at: formOpenedAt }];
-								}
-								if (on && formStatus === "closed" && exitFills.length === 0 && formExitPrice) {
-									exitFills = [{ id: newFillId(), qty: formQuantity || "", price: formExitPrice, at: formClosedAt ?? formOpenedAt }];
-								}
-							}}
-						/>
-						<span class="text-xs text-muted-foreground">Multiple fills (scale in / scale out)</span>
-					</label>
-
-					{#if !useFills}
 						<div class="grid grid-cols-2 gap-3">
 							<div class="space-y-1.5">
-								<div class="text-xs font-medium">Entry price</div>
-								<Input bind:value={formEntryPrice} inputmode="decimal" placeholder="Required" class="rounded-md" />
+								<div class="text-xs font-medium">Side</div>
+								<Select.Root type="single" bind:value={formSide}>
+									<Select.Trigger class="w-full rounded-md cursor-pointer">
+										<span class="capitalize">{formSide}</span>
+									</Select.Trigger>
+									<Select.Content class="rounded-md">
+										<Select.Item value="long" class="cursor-pointer">
+											<ChartLineUpIcon class="mr-2 h-4 w-4" />
+											Long
+										</Select.Item>
+										<Select.Item value="short" class="cursor-pointer">
+											<ChartLineDownIcon class="mr-2 h-4 w-4" />
+											Short
+										</Select.Item>
+									</Select.Content>
+								</Select.Root>
 							</div>
 							<div class="space-y-1.5">
-								<div class="text-xs font-medium">Quantity</div>
-								<Input bind:value={formQuantity} inputmode="decimal" placeholder="Required" class="rounded-md" />
+								<div class="text-xs font-medium">Status</div>
+								<Select.Root type="single" bind:value={formStatus}>
+									<Select.Trigger class="w-full rounded-md cursor-pointer">
+										<span class="capitalize">{formStatus}</span>
+									</Select.Trigger>
+									<Select.Content class="rounded-md">
+										<Select.Item value="open" class="cursor-pointer">
+											<CaretUpIcon size={16} />
+											Open
+										</Select.Item>
+										<Select.Item value="closed" class="cursor-pointer">
+											<CaretDownIcon size={16} />
+											Closed
+										</Select.Item>
+									</Select.Content>
+								</Select.Root>
 							</div>
 						</div>
-					{:else}
-						<div class="space-y-2 rounded-md border bg-muted/10 p-3">
-							<div class="flex items-center justify-between gap-2">
-								<div class="text-xs font-medium">Entry fills</div>
-								<div class="text-[11px] text-muted-foreground tabular-nums">
-									{#if entryFillsAgg}
-										{formatQty(entryFillsAgg.qty)} contracts · Avg {formatPrice(entryFillsAgg.avgPrice)}
-									{:else}
-										No fills yet
-									{/if}
-								</div>
-							</div>
+					</section>
 
-							{#each entryFills as fill, idx (fill.id)}
-								<div class="grid grid-cols-[1fr_1fr_minmax(0,1.4fr)_auto] gap-2 items-center">
-									<Input bind:value={entryFills[idx].qty} inputmode="decimal" placeholder="Qty" class="rounded-md h-8 text-xs" />
-									<Input bind:value={entryFills[idx].price} inputmode="decimal" placeholder="Price" class="rounded-md h-8 text-xs" />
-									<input
-										type="datetime-local"
-										bind:value={entryFills[idx].at}
-										class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring h-8 w-full rounded-md border px-2 py-1 text-xs shadow-xs outline-none focus-visible:ring-1"
-									/>
-									<Button
-										variant="ghost"
-										size="icon"
-										class="h-8 w-8 cursor-pointer text-rose-700 hover:bg-rose-700/10 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-400"
-										aria-label="Remove entry fill"
-										onclick={() => removeEntryFill(idx)}
-									>
-										<TrashIcon size={14} />
-									</Button>
-								</div>
-							{/each}
-
-							<Button
-								variant="outline"
-								size="sm"
-								class="h-7 rounded-md cursor-pointer text-xs"
-								onclick={addEntryFill}
-							>
-								<PlusIcon size={12} /> Add entry fill
-							</Button>
+					<!-- Entry -->
+					<section class="space-y-3 border-t pt-4">
+						<div class="flex items-center justify-between gap-2">
+							<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Entry</h3>
+							<label class="flex items-center gap-2 cursor-pointer select-none">
+								<input
+									type="checkbox"
+									class="rounded border-input cursor-pointer"
+									checked={useFills}
+									onchange={(e) => {
+										const on = (e.currentTarget as HTMLInputElement).checked;
+										useFills = on;
+										if (on && entryFills.length === 0) {
+											entryFills = [{ id: newFillId(), qty: formQuantity || "", price: formEntryPrice || "", at: formOpenedAt }];
+										}
+										if (on && formStatus === "closed" && exitFills.length === 0 && formExitPrice) {
+											exitFills = [{ id: newFillId(), qty: formQuantity || "", price: formExitPrice, at: formClosedAt ?? formOpenedAt }];
+										}
+									}}
+								/>
+								<span class="text-xs text-muted-foreground">Multiple fills</span>
+							</label>
 						</div>
-					{/if}
-
-					<div class="grid grid-cols-2 gap-3">
-						<div class="space-y-1.5">
-							<div class="flex items-baseline justify-between">
-								<div class="text-xs font-medium">Stop loss</div>
-							</div>
-							<Input
-								bind:value={formStopLoss}
-								inputmode="decimal"
-								placeholder="Required"
-								class="rounded-md"
-								oninput={() => { formRiskInput = ""; }}
-							/>
-							{#if stopDistance}
-								<p class="text-[11px] text-muted-foreground tabular-nums leading-snug">
-									{fmtDist(stopDistance.ticks, 1)} ticks · {fmtDist(stopDistance.points, 2)} pts{stopDistance.usd != null ? ` · ${formatUsd(stopDistance.usd)}` : ""}
-								</p>
-							{/if}
-						</div>
-						<div class="space-y-1.5">
-							<div class="flex items-baseline justify-between">
-								<div class="text-xs font-medium">Take profit</div>
-							</div>
-							<Input
-								bind:value={formTakeProfit}
-								inputmode="decimal"
-								placeholder="Required"
-								class="rounded-md"
-								oninput={() => { formProfitInput = ""; }}
-							/>
-							{#if takeProfitDistance}
-								<p class="text-[11px] text-muted-foreground tabular-nums leading-snug">
-									{fmtDist(takeProfitDistance.ticks, 1)} ticks · {fmtDist(takeProfitDistance.points, 2)} pts{takeProfitDistance.usd != null ? ` · ${formatUsd(takeProfitDistance.usd)}` : ""}
-								</p>
-							{/if}
-						</div>
-					</div>
-
-					<label class="flex items-center gap-2 cursor-pointer select-none">
-						<input type="checkbox" bind:checked={showRiskProfit} class="rounded border-input cursor-pointer" />
-						<span class="text-xs text-muted-foreground">Manually add risk and profit target</span>
-					</label>
-
-					{#if showRiskProfit}
-					{@const unitOptions: { value: DistUnit; label: string }[] = [
-						{ value: "usd", label: "$" },
-						{ value: "ticks", label: "ticks" },
-						{ value: "points", label: "pts" },
-					]}
-					{@const riskPlaceholder = riskUnit === "usd" ? "e.g. 250" : riskUnit === "ticks" ? "e.g. 20" : "e.g. 5"}
-					{@const profitPlaceholder = profitUnit === "usd" ? "e.g. 500" : profitUnit === "ticks" ? "e.g. 40" : "e.g. 10"}
-					<div class="grid grid-cols-2 gap-3">
-						<div class="space-y-1.5">
-							<div class="flex items-center justify-between gap-2">
-								<div class="text-xs font-medium">Risk</div>
-								<div class="inline-flex rounded-md border p-0.5 gap-0.5">
-									{#each unitOptions as opt}
-										<button
-											type="button"
-											class={[
-												"px-1.5 py-0.5 text-[10px] font-medium rounded-sm cursor-pointer transition-colors",
-												riskUnit === opt.value ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
-											]}
-											aria-pressed={riskUnit === opt.value}
-											onclick={() => (riskUnit = opt.value)}
-										>
-											{opt.label}
-										</button>
-									{/each}
-								</div>
-							</div>
-							<Input
-								bind:value={formRiskInput}
-								inputmode="decimal"
-								placeholder={riskPlaceholder}
-								class="rounded-md"
-							/>
-							{#if impliedStop != null}
-								<p class="text-[11px] text-emerald-700 dark:text-emerald-400 leading-snug">
-									→ Stop {impliedStop.toLocaleString(undefined, { maximumFractionDigits: 8 })}
-								</p>
-							{:else if formRiskInput && (num(formEntryPrice) == null || num(formQuantity) == null || !selectedInstrument)}
-								<p class="text-[11px] text-muted-foreground leading-snug">
-									Fill in entry, quantity, and instrument first.
-								</p>
-							{/if}
-						</div>
-
-						<div class="space-y-1.5">
-							<div class="flex items-center justify-between gap-2">
-								<div class="text-xs font-medium">Profit</div>
-								<div class="inline-flex rounded-md border p-0.5 gap-0.5">
-									{#each unitOptions as opt}
-										<button
-											type="button"
-											class={[
-												"px-1.5 py-0.5 text-[10px] font-medium rounded-sm cursor-pointer transition-colors",
-												profitUnit === opt.value ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
-											]}
-											aria-pressed={profitUnit === opt.value}
-											onclick={() => (profitUnit = opt.value)}
-										>
-											{opt.label}
-										</button>
-									{/each}
-								</div>
-							</div>
-							<Input
-								bind:value={formProfitInput}
-								inputmode="decimal"
-								placeholder={profitPlaceholder}
-								class="rounded-md"
-							/>
-							{#if impliedTakeProfit != null}
-								<p class="text-[11px] text-emerald-700 dark:text-emerald-400 leading-snug">
-									→ Target {impliedTakeProfit.toLocaleString(undefined, { maximumFractionDigits: 8 })}
-								</p>
-							{:else if formProfitInput && (num(formEntryPrice) == null || num(formQuantity) == null || !selectedInstrument)}
-								<p class="text-[11px] text-muted-foreground leading-snug">
-									Fill in entry, quantity, and instrument first.
-								</p>
-							{/if}
-						</div>
-					</div>
-					{/if}
-
-					<div class="rounded-md border bg-muted/30 px-3 py-2.5 text-xs">
-						<div class="grid grid-cols-3 gap-3 tabular-nums">
-							<div>
-								<div class="text-muted-foreground">Risk / reward</div>
-								<div class="mt-0.5 font-medium">{formatRiskReward(formPlannedRR)}</div>
-							</div>
-							<div>
-								<div class="text-muted-foreground">At target</div>
-								<div class="mt-0.5 font-medium text-emerald-700 dark:text-emerald-400">{formatUsd(pnlAtFullTarget)}</div>
-							</div>
-							<div>
-								<div class="text-muted-foreground">If stopped</div>
-								<div class="mt-0.5 font-medium text-rose-700 dark:text-rose-400">{formatUsd(stopLossPnL)}</div>
-							</div>
-						</div>
-						{#if formPlannedRR == null && num(formEntryPrice) != null && num(formStopLoss) != null && num(formTakeProfit) != null}
-							<div class="mt-1.5 text-[11px] text-muted-foreground">
-								Check side vs. stop/target levels.
-							</div>
-						{/if}
-					</div>
-
-					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Opened at</div>
-						<DateTimePicker
-							value={formOpenedAt}
-							onValueChange={(v) => (formOpenedAt = v ?? toDatetimeLocalValue(new Date()))}
-						/>
-					</div>
-
-					{#if formStatus === "closed"}
 						{#if !useFills}
 							<div class="grid grid-cols-2 gap-3">
 								<div class="space-y-1.5">
-									<div class="text-xs font-medium">Exit price</div>
-									<Input bind:value={formExitPrice} inputmode="decimal" placeholder="Optional" class="rounded-md" />
+									<div class="text-xs font-medium">Entry price</div>
+									<Input bind:value={formEntryPrice} inputmode="decimal" placeholder="Required" class="rounded-md" />
 								</div>
 								<div class="space-y-1.5">
-									<div class="text-xs font-medium">Closed at</div>
-									<DateTimePicker
-										value={formClosedAt}
-										onValueChange={(v) => (formClosedAt = v)}
-										clearable
-									/>
+									<div class="text-xs font-medium">Quantity</div>
+									<Input bind:value={formQuantity} inputmode="decimal" placeholder="Required" class="rounded-md" />
 								</div>
 							</div>
 						{:else}
 							<div class="space-y-2 rounded-md border bg-muted/10 p-3">
 								<div class="flex items-center justify-between gap-2">
-									<div class="text-xs font-medium">Exit fills</div>
+									<div class="text-xs font-medium">Entry fills</div>
 									<div class="text-[11px] text-muted-foreground tabular-nums">
-										{#if exitFillsAgg}
-											{formatQty(exitFillsAgg.qty)} contracts · Avg {formatPrice(exitFillsAgg.avgPrice)}
+										{#if entryFillsAgg}
+											{formatQty(entryFillsAgg.qty)} contracts · Avg {formatPrice(entryFillsAgg.avgPrice)}
 										{:else}
 											No fills yet
 										{/if}
 									</div>
 								</div>
-
-								{#each exitFills as fill, idx (fill.id)}
+								{#each entryFills as fill, idx (fill.id)}
 									<div class="grid grid-cols-[1fr_1fr_minmax(0,1.4fr)_auto] gap-2 items-center">
-										<Input bind:value={exitFills[idx].qty} inputmode="decimal" placeholder="Qty" class="rounded-md h-8 text-xs" />
-										<Input bind:value={exitFills[idx].price} inputmode="decimal" placeholder="Price" class="rounded-md h-8 text-xs" />
+										<Input bind:value={entryFills[idx].qty} inputmode="decimal" placeholder="Qty" class="rounded-md h-8 text-xs" />
+										<Input bind:value={entryFills[idx].price} inputmode="decimal" placeholder="Price" class="rounded-md h-8 text-xs" />
 										<input
 											type="datetime-local"
-											bind:value={exitFills[idx].at}
+											bind:value={entryFills[idx].at}
 											class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring h-8 w-full rounded-md border px-2 py-1 text-xs shadow-xs outline-none focus-visible:ring-1"
 										/>
 										<Button
 											variant="ghost"
 											size="icon"
 											class="h-8 w-8 cursor-pointer text-rose-700 hover:bg-rose-700/10 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-400"
-											aria-label="Remove exit fill"
-											onclick={() => removeExitFill(idx)}
+											aria-label="Remove entry fill"
+											onclick={() => removeEntryFill(idx)}
 										>
 											<TrashIcon size={14} />
 										</Button>
 									</div>
 								{/each}
-
 								<Button
 									variant="outline"
 									size="sm"
 									class="h-7 rounded-md cursor-pointer text-xs"
-									onclick={addExitFill}
+									onclick={addEntryFill}
 								>
-									<PlusIcon size={12} /> Add exit fill
+									<PlusIcon size={12} /> Add entry fill
 								</Button>
+							</div>
+						{/if}
+					</section>
 
-								{#if entryFillsAgg && exitFillsAgg && Math.abs(exitFillsAgg.qty - entryFillsAgg.qty) > 1e-9}
-									<p class="text-[11px] text-amber-700 dark:text-amber-400 leading-snug">
-										Exit qty ({formatQty(exitFillsAgg.qty)}) doesn't match entry qty ({formatQty(entryFillsAgg.qty)}).
+					<!-- Risk levels -->
+					<section class="space-y-3 border-t pt-4">
+						<div class="flex items-center justify-between gap-2">
+							<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Risk levels</h3>
+							<label class="flex items-center gap-2 cursor-pointer select-none">
+								<input type="checkbox" bind:checked={showRiskProfit} class="rounded border-input cursor-pointer" />
+								<span class="text-xs text-muted-foreground">Size by $ / ticks / pts</span>
+							</label>
+						</div>
+						<div class="grid grid-cols-2 gap-3">
+							<div class="space-y-1.5">
+								<div class="text-xs font-medium">Stop loss</div>
+								<Input
+									bind:value={formStopLoss}
+									inputmode="decimal"
+									placeholder="Required"
+									class="rounded-md"
+									oninput={() => { formRiskInput = ""; }}
+								/>
+								{#if stopDistance}
+									<p class="text-[11px] text-muted-foreground tabular-nums leading-snug">
+										{fmtDist(stopDistance.ticks, 1)} ticks · {fmtDist(stopDistance.points, 2)} pts{stopDistance.usd != null ? ` · ${formatUsd(stopDistance.usd)}` : ""}
 									</p>
 								{/if}
+							</div>
+							<div class="space-y-1.5">
+								<div class="text-xs font-medium">Take profit</div>
+								<Input
+									bind:value={formTakeProfit}
+									inputmode="decimal"
+									placeholder="Required"
+									class="rounded-md"
+									oninput={() => { formProfitInput = ""; }}
+								/>
+								{#if takeProfitDistance}
+									<p class="text-[11px] text-muted-foreground tabular-nums leading-snug">
+										{fmtDist(takeProfitDistance.ticks, 1)} ticks · {fmtDist(takeProfitDistance.points, 2)} pts{takeProfitDistance.usd != null ? ` · ${formatUsd(takeProfitDistance.usd)}` : ""}
+									</p>
+								{/if}
+							</div>
+						</div>
 
-								<div class="space-y-1.5 pt-1">
-									<div class="text-xs font-medium">Closed at</div>
-									<DateTimePicker
-										value={formClosedAt}
-										onValueChange={(v) => (formClosedAt = v)}
-										clearable
+						{#if showRiskProfit}
+							{@const unitOptions: { value: DistUnit; label: string }[] = [
+								{ value: "usd", label: "$" },
+								{ value: "ticks", label: "ticks" },
+								{ value: "points", label: "pts" },
+							]}
+							{@const riskPlaceholder = riskUnit === "usd" ? "e.g. 250" : riskUnit === "ticks" ? "e.g. 20" : "e.g. 5"}
+							{@const profitPlaceholder = profitUnit === "usd" ? "e.g. 500" : profitUnit === "ticks" ? "e.g. 40" : "e.g. 10"}
+							<div class="grid grid-cols-2 gap-3 rounded-md border bg-muted/10 p-3">
+								<div class="space-y-1.5">
+									<div class="flex items-center justify-between gap-2">
+										<div class="text-xs font-medium">Risk</div>
+										<div class="inline-flex rounded-md border p-0.5 gap-0.5">
+											{#each unitOptions as opt}
+												<button
+													type="button"
+													class={[
+														"px-1.5 py-0.5 text-[10px] font-medium rounded-sm cursor-pointer transition-colors",
+														riskUnit === opt.value ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
+													]}
+													aria-pressed={riskUnit === opt.value}
+													onclick={() => (riskUnit = opt.value)}
+												>
+													{opt.label}
+												</button>
+											{/each}
+										</div>
+									</div>
+									<Input
+										bind:value={formRiskInput}
+										inputmode="decimal"
+										placeholder={riskPlaceholder}
+										class="rounded-md"
 									/>
+									{#if impliedStop != null}
+										<p class="text-[11px] text-emerald-700 dark:text-emerald-400 leading-snug">
+											→ Stop {impliedStop.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+										</p>
+									{:else if formRiskInput && (num(formEntryPrice) == null || num(formQuantity) == null || !selectedInstrument)}
+										<p class="text-[11px] text-muted-foreground leading-snug">
+											Fill in entry, quantity, and instrument first.
+										</p>
+									{/if}
+								</div>
+								<div class="space-y-1.5">
+									<div class="flex items-center justify-between gap-2">
+										<div class="text-xs font-medium">Profit</div>
+										<div class="inline-flex rounded-md border p-0.5 gap-0.5">
+											{#each unitOptions as opt}
+												<button
+													type="button"
+													class={[
+														"px-1.5 py-0.5 text-[10px] font-medium rounded-sm cursor-pointer transition-colors",
+														profitUnit === opt.value ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
+													]}
+													aria-pressed={profitUnit === opt.value}
+													onclick={() => (profitUnit = opt.value)}
+												>
+													{opt.label}
+												</button>
+											{/each}
+										</div>
+									</div>
+									<Input
+										bind:value={formProfitInput}
+										inputmode="decimal"
+										placeholder={profitPlaceholder}
+										class="rounded-md"
+									/>
+									{#if impliedTakeProfit != null}
+										<p class="text-[11px] text-emerald-700 dark:text-emerald-400 leading-snug">
+											→ Target {impliedTakeProfit.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+										</p>
+									{:else if formProfitInput && (num(formEntryPrice) == null || num(formQuantity) == null || !selectedInstrument)}
+										<p class="text-[11px] text-muted-foreground leading-snug">
+											Fill in entry, quantity, and instrument first.
+										</p>
+									{/if}
 								</div>
 							</div>
 						{/if}
-					{/if}
 
-					{#if commissionPerSide > 0}
-						<div class="rounded-md border bg-muted/20 px-3 py-2 text-xs space-y-1">
-							<div class="flex items-center justify-between gap-2">
-								<span class="text-muted-foreground">Commission</span>
-								<span class="text-[11px] text-muted-foreground tabular-nums">
-									${commissionPerSide.toFixed(4)}/side × {num(formQuantity) ?? 0}
-								</span>
+						<div class="rounded-md border bg-muted/30 px-3 py-2.5 text-xs">
+							<div class="grid grid-cols-3 gap-3 tabular-nums">
+								<div>
+									<div class="text-muted-foreground">Risk / reward</div>
+									<div class="mt-0.5 font-medium">{formatRiskReward(formPlannedRR)}</div>
+								</div>
+								<div>
+									<div class="text-muted-foreground">At target</div>
+									<div class="mt-0.5 font-medium text-emerald-700 dark:text-emerald-400">{formatUsd(pnlAtFullTarget)}</div>
+								</div>
+								<div>
+									<div class="text-muted-foreground">If stopped</div>
+									<div class="mt-0.5 font-medium text-rose-700 dark:text-rose-400">{formatUsd(stopLossPnL)}</div>
+								</div>
 							</div>
-							<div class="flex items-center justify-between gap-2 tabular-nums">
-								<span>Entry</span>
-								<span class="text-rose-700 dark:text-rose-400">−{formatUsd(commissionBreakdown.entry)}</span>
-							</div>
-							{#if formStatus === "closed"}
-								<div class="flex items-center justify-between gap-2 tabular-nums">
-									<span>Exit</span>
-									<span class="text-rose-700 dark:text-rose-400">−{formatUsd(commissionBreakdown.exit)}</span>
+							{#if formPlannedRR == null && num(formEntryPrice) != null && num(formStopLoss) != null && num(formTakeProfit) != null}
+								<div class="mt-1.5 text-[11px] text-muted-foreground">
+									Check side vs. stop/target levels.
 								</div>
 							{/if}
-							<div class="flex items-center justify-between gap-2 border-t pt-1 mt-1 tabular-nums font-medium">
-								<span>Total deducted</span>
-								<span class="text-rose-700 dark:text-rose-400">−{formatUsd(commissionBreakdown.total)}</span>
-							</div>
 						</div>
-					{/if}
+					</section>
 
 					{#if formStatus === "closed"}
-						<div class="space-y-1.5">
-							<div class="text-xs font-medium">Net P&amp;L</div>
-							<Input bind:value={formPnl} inputmode="decimal" placeholder="Optional" class="rounded-md" />
-							<p class="text-[11px] text-muted-foreground leading-snug">
-								Auto-calculated as gross P&amp;L minus round-turn commission. Edit if you need
-								a different number (scaling, partials, manual fees).
-							</p>
-						</div>
+						<!-- Exit -->
+						<section class="space-y-3 border-t pt-4">
+							<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Exit</h3>
+							{#if !useFills}
+								<div class="space-y-1.5">
+									<div class="text-xs font-medium">Exit price</div>
+									<Input bind:value={formExitPrice} inputmode="decimal" placeholder="Optional" class="rounded-md" />
+								</div>
+							{:else}
+								<div class="space-y-2 rounded-md border bg-muted/10 p-3">
+									<div class="flex items-center justify-between gap-2">
+										<div class="text-xs font-medium">Exit fills</div>
+										<div class="text-[11px] text-muted-foreground tabular-nums">
+											{#if exitFillsAgg}
+												{formatQty(exitFillsAgg.qty)} contracts · Avg {formatPrice(exitFillsAgg.avgPrice)}
+											{:else}
+												No fills yet
+											{/if}
+										</div>
+									</div>
+									{#each exitFills as fill, idx (fill.id)}
+										<div class="grid grid-cols-[1fr_1fr_minmax(0,1.4fr)_auto] gap-2 items-center">
+											<Input bind:value={exitFills[idx].qty} inputmode="decimal" placeholder="Qty" class="rounded-md h-8 text-xs" />
+											<Input bind:value={exitFills[idx].price} inputmode="decimal" placeholder="Price" class="rounded-md h-8 text-xs" />
+											<input
+												type="datetime-local"
+												bind:value={exitFills[idx].at}
+												class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring h-8 w-full rounded-md border px-2 py-1 text-xs shadow-xs outline-none focus-visible:ring-1"
+											/>
+											<Button
+												variant="ghost"
+												size="icon"
+												class="h-8 w-8 cursor-pointer text-rose-700 hover:bg-rose-700/10 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-400"
+												aria-label="Remove exit fill"
+												onclick={() => removeExitFill(idx)}
+											>
+												<TrashIcon size={14} />
+											</Button>
+										</div>
+									{/each}
+									<Button
+										variant="outline"
+										size="sm"
+										class="h-7 rounded-md cursor-pointer text-xs"
+										onclick={addExitFill}
+									>
+										<PlusIcon size={12} /> Add exit fill
+									</Button>
+									{#if entryFillsAgg && exitFillsAgg && Math.abs(exitFillsAgg.qty - entryFillsAgg.qty) > 1e-9}
+										<p class="text-[11px] text-amber-700 dark:text-amber-400 leading-snug">
+											Exit qty ({formatQty(exitFillsAgg.qty)}) doesn't match entry qty ({formatQty(entryFillsAgg.qty)}).
+										</p>
+									{/if}
+								</div>
+							{/if}
+						</section>
 					{/if}
+
+					{#if formStatus === "closed" || commissionPerSide > 0}
+						<!-- P&L & costs -->
+						<section class="space-y-3 border-t pt-4">
+							<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+								{formStatus === "closed" ? "P&L & costs" : "Costs"}
+							</h3>
+							{#if commissionPerSide > 0}
+								<div class="rounded-md border bg-muted/20 px-3 py-2 text-xs space-y-1">
+									<div class="flex items-center justify-between gap-2">
+										<span class="text-muted-foreground">Commission</span>
+										<span class="text-[11px] text-muted-foreground tabular-nums">
+											${commissionPerSide.toFixed(4)}/side × {num(formQuantity) ?? 0}
+										</span>
+									</div>
+									<div class="flex items-center justify-between gap-2 tabular-nums">
+										<span>Entry</span>
+										<span class="text-rose-700 dark:text-rose-400">−{formatUsd(commissionBreakdown.entry)}</span>
+									</div>
+									{#if formStatus === "closed"}
+										<div class="flex items-center justify-between gap-2 tabular-nums">
+											<span>Exit</span>
+											<span class="text-rose-700 dark:text-rose-400">−{formatUsd(commissionBreakdown.exit)}</span>
+										</div>
+									{/if}
+									<div class="flex items-center justify-between gap-2 border-t pt-1 mt-1 tabular-nums font-medium">
+										<span>Total deducted</span>
+										<span class="text-rose-700 dark:text-rose-400">−{formatUsd(commissionBreakdown.total)}</span>
+									</div>
+								</div>
+							{/if}
+							{#if formStatus === "closed"}
+								<div class="space-y-1.5">
+									<div class="text-xs font-medium">Net P&amp;L</div>
+									<Input bind:value={formPnl} inputmode="decimal" placeholder="Optional" class="rounded-md" />
+									<p class="text-[11px] text-muted-foreground leading-snug">
+										Auto-calculated as gross P&amp;L minus round-turn commission. Edit if you need
+										a different number (scaling, partials, manual fees).
+									</p>
+								</div>
+							{/if}
+						</section>
+					{/if}
+
+					<!-- Timing -->
+					<section class="space-y-3 border-t pt-4">
+						<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Timing</h3>
+						{#if !useFills}
+							<div class={formStatus === "closed" ? "grid grid-cols-2 gap-3" : "space-y-1.5"}>
+								<div class="space-y-1.5">
+									<div class="text-xs font-medium">Opened at</div>
+									<DateTimePicker
+										value={formOpenedAt}
+										onValueChange={(v) => (formOpenedAt = v ?? toDatetimeLocalValue(new Date()))}
+									/>
+								</div>
+								{#if formStatus === "closed"}
+									<div class="space-y-1.5">
+										<div class="text-xs font-medium">Closed at</div>
+										<DateTimePicker
+											value={formClosedAt}
+											onValueChange={(v) => (formClosedAt = v ?? toDatetimeLocalValue(new Date()))}
+										/>
+									</div>
+								{/if}
+							</div>
+						{:else}
+							<div class="rounded-md border bg-muted/10 px-3 py-2 text-[11px] text-muted-foreground leading-relaxed">
+								{#if entryFillsFirstAtMs != null}
+									Opened at <span class="text-foreground tabular-nums">{new Date(entryFillsFirstAtMs).toLocaleString()}</span>
+									<span class="text-muted-foreground/70">(from first entry fill)</span>
+									{#if formStatus === "closed"}
+										<br />
+										{#if exitFillsLastAtMs != null}
+											Closed at <span class="text-foreground tabular-nums">{new Date(exitFillsLastAtMs).toLocaleString()}</span>
+											<span class="text-muted-foreground/70">(from last exit fill)</span>
+										{:else}
+											Closed at <span class="text-muted-foreground/70">(set from last exit fill)</span>
+										{/if}
+									{/if}
+								{:else}
+									Opened / closed times are derived from your fill timestamps.
+								{/if}
+							</div>
+						{/if}
+					</section>
 
 					{#if checklistStore.items.length > 0}
 						{@const total = checklistStore.items.length}
 						{@const checked = formChecklistItemIds.length}
 						{@const allChecked = checked === total}
-						<div class="space-y-1.5 rounded-md border p-3">
+						<!-- Pre-trade checklist -->
+						<section class="space-y-3 border-t pt-4">
 							<div class="flex items-center justify-between gap-2">
 								<div>
-									<div class="text-xs font-medium">Pre-trade checklist</div>
-									<p class="text-[11px] text-muted-foreground leading-snug">Confirm your rules before saving. {checked}/{total} checked.</p>
+									<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pre-trade checklist</h3>
+									<p class="text-[11px] text-muted-foreground leading-snug mt-0.5">Confirm your rules before saving. {checked}/{total} checked.</p>
 								</div>
 								<button
 									type="button"
@@ -1201,7 +1269,7 @@
 									{allChecked ? "Uncheck all" : "Check all"}
 								</button>
 							</div>
-							<div class="space-y-1">
+							<div class="space-y-1 rounded-md border p-3">
 								{#each checklistStore.items as item (item.id)}
 									{@const on = formChecklistItemIds.includes(item.id)}
 									<label class="flex items-start gap-2 cursor-pointer rounded-md px-1 py-1 hover:bg-muted/40">
@@ -1219,7 +1287,7 @@
 									</label>
 								{/each}
 							</div>
-						</div>
+						</section>
 					{/if}
 				{/if}
 
