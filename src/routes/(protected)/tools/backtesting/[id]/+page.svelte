@@ -2,20 +2,14 @@
 	import { onMount } from "svelte";
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
-	import { confirm } from "$lib/components/ui/confirm-dialog";
+	import type { Session } from "@supabase/supabase-js";
 	import HeaderNavbar from "$lib/components/layout/header-navbar.svelte";
 	import * as Breadcrumb from "$lib/components/ui/breadcrumb/index.js";
 	import { ScrollArea } from "$lib/components/ui/scroll-area";
 	import { Button } from "$lib/components/ui/button";
-	import { Input } from "$lib/components/ui/input";
 	import { Skeleton } from "$lib/components/ui/skeleton";
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
-	import * as Select from "$lib/components/ui/select/index.js";
-	import { DateTimePicker } from "$lib/components/ui/date-time-picker";
-	import { MultiSelect } from "$lib/components/ui/multi-select";
 	import {
-		CaretDownIcon,
-		CaretUpIcon,
 		ChartLineDownIcon,
 		ChartLineUpIcon,
 		FileTextIcon,
@@ -23,38 +17,19 @@
 		PencilSimpleIcon,
 		PlusIcon,
 		ShareNetworkIcon,
-		TrashIcon,
 		WarningIcon
 	} from "phosphor-svelte";
 	import SessionSummary from "./session-summary.svelte";
 	import PnlShareDialog from "$lib/components/pnl-share-sheet/pnl-share-dialog.svelte";
+	import TradeFormDialog from "$lib/components/trades/trade-form-dialog.svelte";
+	import type { TradeRow } from "$lib/components/trades/trade-utils";
 	import { supabase } from "$lib/supabase/client";
 	import { backtestSessionStore, backtestFailStatus } from "$lib/stores/backtest-sessions.svelte";
 	import { tradeStore } from "$lib/stores/trades.svelte";
-	import { instrumentStore, instrumentPnl } from "$lib/stores/instruments.svelte";
+	import { instrumentStore } from "$lib/stores/instruments.svelte";
 	import { strategyStore } from "$lib/stores/strategies.svelte";
 	import { mistakeStore } from "$lib/stores/mistakes.svelte";
 	import { toast } from "svelte-sonner";
-
-	interface TradeRow {
-		id: string;
-		symbol: string;
-		side: string | null;
-		status: "open" | "closed";
-		entry_price: string | number;
-		exit_price: string | number | null;
-		quantity: string | number;
-		stop_loss: string | number | null;
-		take_profit: string | number | null;
-		risk: string | number | null;
-		pnl: string | number | null;
-		opened_at: string;
-		closed_at: string | null;
-		notes: string | null;
-		strategy_ids?: string[];
-		mistake_ids?: string[];
-		instrument_id: string | null;
-	}
 
 	const sessionId = $derived(page.params.id as string);
 	const sess = $derived(backtestSessionStore.current);
@@ -62,35 +37,11 @@
 	const trades = $derived((tradeStore.trades ?? []) as unknown as TradeRow[]);
 	const loadingTrades = $derived(tradeStore.loading);
 
-	let tradeSheetOpen = $state(false);
+	let tradeFormOpen = $state(false);
+	let editingTrade = $state<TradeRow | null>(null);
+	let session = $state<Session | null>(null);
 	let summaryOpen = $state(false);
 	let shareOpen = $state(false);
-	let editingTradeId = $state<string | null>(null);
-	let saving = $state(false);
-	let deleting = $state(false);
-
-	let formSymbol = $state("");
-	let formSide = $state<"long" | "short">("long");
-	let formStatus = $state<"open" | "closed">("open");
-	let formEntryPrice = $state("");
-	let formQuantity = $state("1");
-	let formStopLoss = $state("");
-	let formTakeProfit = $state("");
-	let formOpenedAt = $state(toDatetimeLocalValue(new Date()));
-	let formExitPrice = $state("");
-	let formClosedAt = $state<string | null>(null);
-	let formPnl = $state("");
-	let lastAutoPnl = $state<string | null>(null);
-	let formNotes = $state("");
-	let formStrategyIds = $state<string[]>([]);
-	let formMistakeIds = $state<string[]>([]);
-
-	const isEditingTrade = $derived(editingTradeId != null);
-
-	function toDatetimeLocalValue(d: Date) {
-		const pad = (n: number) => String(n).padStart(2, "0");
-		return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-	}
 
 	function num(v: string | number | null | undefined): number | undefined {
 		if (v == null || v === "") return undefined;
@@ -153,64 +104,11 @@
 		}).format(d);
 	}
 
-	const selectedInstrument = $derived.by(() =>
-		instrumentStore.instruments?.find((i) => i.symbol === formSymbol)
-	);
-
 	const sessionInstrument = $derived.by(() =>
 		sess?.instrument_id
 			? instrumentStore.instruments?.find((i) => i.id === sess.instrument_id)
 			: null
 	);
-
-	function priceMovePnl(from: number, to: number) {
-		const qty = num(formQuantity);
-		if (qty == null || !selectedInstrument) return null;
-		return instrumentPnl(selectedInstrument, formSide, from, to, qty);
-	}
-
-	const stopLossPnL = $derived.by(() => {
-		const entry = num(formEntryPrice);
-		const stop = num(formStopLoss);
-		return entry != null && stop != null ? priceMovePnl(entry, stop) : null;
-	});
-
-	const formPlannedRR = $derived.by(() => {
-		const e = num(formEntryPrice);
-		const sl = num(formStopLoss);
-		const tp = num(formTakeProfit);
-		if (e == null || sl == null || tp == null) return null;
-		return riskRewardRatio(e, sl, tp, formSide);
-	});
-
-	const suggestedClosedPnl = $derived.by((): string | null => {
-		if (formStatus !== "closed") return null;
-		const entry = num(formEntryPrice);
-		const exit = num(formExitPrice);
-		const qty = num(formQuantity);
-		if (entry == null || exit == null || qty == null) return null;
-		return instrumentPnl(selectedInstrument, formSide, entry, exit, qty).toFixed(2);
-	});
-
-	$effect(() => {
-		const suggested = suggestedClosedPnl;
-		if (suggested == null) return;
-		const shouldSync =
-			formPnl === "" ||
-			formPnl === lastAutoPnl ||
-			(lastAutoPnl == null && num(formPnl) === 0);
-		if (shouldSync) {
-			formPnl = suggested;
-			lastAutoPnl = suggested;
-		}
-	});
-
-	$effect(() => {
-		if (!formSymbol) {
-			const fallback = sessionInstrument?.symbol ?? instrumentStore.instruments?.[0]?.symbol;
-			if (fallback) formSymbol = fallback;
-		}
-	});
 
 	const stats = $derived.by(() => {
 		const rows = trades;
@@ -254,160 +152,19 @@
 		return { start, end: balance, points };
 	});
 
-	function resetForm() {
-		formSymbol = sessionInstrument?.symbol ?? instrumentStore.instruments?.[0]?.symbol ?? "";
-		formSide = "long";
-		formStatus = "open";
-		formEntryPrice = "";
-		formQuantity = "1";
-		formStopLoss = "";
-		formTakeProfit = "";
-		formOpenedAt = toDatetimeLocalValue(new Date());
-		formExitPrice = "";
-		formClosedAt = null;
-		formPnl = "";
-		lastAutoPnl = null;
-		formNotes = "";
-		formStrategyIds = [];
-		formMistakeIds = [];
-	}
-
 	function openCreate() {
-		editingTradeId = null;
-		resetForm();
-		tradeSheetOpen = true;
+		editingTrade = null;
+		tradeFormOpen = true;
 	}
 
 	function openEdit(t: TradeRow) {
-		editingTradeId = t.id;
-		formSymbol = t.symbol ?? "";
-		formSide = normalizeSide(t.side) ?? "long";
-		formStatus = t.status;
-		formEntryPrice = num(t.entry_price) != null ? String(num(t.entry_price)) : "";
-		formQuantity = num(t.quantity) != null ? String(num(t.quantity)) : "1";
-		formStopLoss = num(t.stop_loss) != null ? String(num(t.stop_loss)) : "";
-		formTakeProfit = num(t.take_profit) != null ? String(num(t.take_profit)) : "";
-		formOpenedAt = t.opened_at ? toDatetimeLocalValue(new Date(t.opened_at)) : toDatetimeLocalValue(new Date());
-		formExitPrice = num(t.exit_price) != null ? String(num(t.exit_price)) : "";
-		formClosedAt = t.closed_at ? toDatetimeLocalValue(new Date(t.closed_at)) : null;
-		formPnl = num(t.pnl) != null ? String(num(t.pnl)) : "";
-		lastAutoPnl = null;
-		formNotes = t.notes ?? "";
-		formStrategyIds = [...(t.strategy_ids ?? [])];
-		formMistakeIds = [...(t.mistake_ids ?? [])];
-		tradeSheetOpen = true;
+		editingTrade = t;
+		tradeFormOpen = true;
 	}
 
-	function closeSheet() {
-		tradeSheetOpen = false;
-		editingTradeId = null;
-	}
-
-	async function submitTrade() {
-		const symbol = formSymbol.trim().toUpperCase();
-		const entryPrice = num(formEntryPrice);
-		const qty = num(formQuantity);
-		const stopLoss = num(formStopLoss);
-		const takeProfit = num(formTakeProfit);
-		if (!symbol || entryPrice == null || qty == null) {
-			toast.error("Symbol, entry price, and quantity are required.");
-			return;
-		}
-		if (stopLoss == null || takeProfit == null) {
-			toast.error("Stop loss and take profit are required.");
-			return;
-		}
-		const rr = riskRewardRatio(entryPrice, stopLoss, takeProfit, formSide);
-		if (rr == null) {
-			toast.error(
-				formSide === "long"
-					? "For a long, stop must be below entry and take profit above entry."
-					: "For a short, stop must be above entry and take profit below entry."
-			);
-			return;
-		}
-
-		const dollarRisk = stopLossPnL != null ? Math.abs(stopLossPnL) : 0;
-		const openedAtIso = new Date(formOpenedAt).toISOString();
-		const exitPrice = formStatus === "closed" ? (num(formExitPrice) ?? null) : null;
-		const closedAtIso =
-			formStatus === "closed" && formClosedAt?.trim()
-				? new Date(formClosedAt).toISOString()
-				: null;
-
-		saving = true;
-		try {
-			if (editingTradeId) {
-				await tradeStore.updateTrade(supabase, editingTradeId, {
-					instrument_id: selectedInstrument?.id ?? null,
-					symbol,
-					side: formSide,
-					status: formStatus,
-					entry_price: entryPrice,
-					exit_price: exitPrice,
-					quantity: qty,
-					stop_loss: stopLoss,
-					take_profit: takeProfit,
-					risk: dollarRisk,
-					pnl: formStatus === "closed" ? (num(formPnl) ?? 0) : 0,
-					opened_at: openedAtIso,
-					closed_at: closedAtIso,
-					notes: formNotes.trim() || null,
-					strategy_ids: formStrategyIds,
-					mistake_ids: formStatus === "closed" ? formMistakeIds : [],
-				});
-				toast.success("Trade updated.");
-			} else {
-				await tradeStore.createTrade(supabase, {
-					account_id: null,
-					backtest_session_id: sessionId,
-					instrument_id: selectedInstrument?.id ?? null,
-					symbol,
-					side: formSide,
-					status: formStatus,
-					entry_price: entryPrice,
-					exit_price: exitPrice,
-					quantity: qty,
-					stop_loss: stopLoss,
-					take_profit: takeProfit,
-					risk: dollarRisk,
-					pnl: formStatus === "closed" ? (num(formPnl) ?? 0) : 0,
-					opened_at: openedAtIso,
-					closed_at: closedAtIso,
-					notes: formNotes.trim() || undefined,
-					strategy_ids: formStrategyIds,
-					mistake_ids: formStatus === "closed" ? formMistakeIds : [],
-				});
-				toast.success("Trade saved.");
-			}
-			closeSheet();
-			await tradeStore.getTradesByAccount(supabase, { sessionId, pageSize: 100 });
-		} catch (e) {
-			toast.error(e instanceof Error ? e.message : "Failed to save trade.");
-		} finally {
-			saving = false;
-		}
-	}
-
-	async function deleteTrade() {
-		if (!editingTradeId) return;
-		const ok = await confirm({
-			title: "Delete this trade?",
-			description: "This cannot be undone.",
-			destructive: true,
-		});
-		if (!ok) return;
-		deleting = true;
-		try {
-			await tradeStore.deleteTrade(supabase, editingTradeId);
-			closeSheet();
-			toast.success("Trade deleted.");
-			await tradeStore.getTradesByAccount(supabase, { sessionId, pageSize: 100 });
-		} catch (e) {
-			toast.error(e instanceof Error ? e.message : "Failed to delete trade.");
-		} finally {
-			deleting = false;
-		}
+	async function refreshSession() {
+		const { data } = await supabase.auth.getSession();
+		session = data.session;
 	}
 
 	function formatDate(iso: string | null) {
@@ -418,6 +175,7 @@
 	}
 
 	onMount(() => {
+		void refreshSession();
 		void backtestSessionStore.getById(supabase, sessionId);
 		void tradeStore.getTradesByAccount(supabase, { sessionId, pageSize: 100 });
 		if (!instrumentStore.instruments?.length) {
@@ -669,188 +427,7 @@
 	</div>
 </ScrollArea>
 
-<Dialog.Root bind:open={tradeSheetOpen} onOpenChange={(o: boolean) => { if (!o) closeSheet(); }}>
-	<Dialog.Content class="w-[min(100vw,560px)] sm:max-w-[560px] max-h-[90vh] flex flex-col p-0 gap-0">
-		<Dialog.Header class="px-5 pt-5 pb-3 border-b">
-			<Dialog.Title>{isEditingTrade ? "Edit trade" : "New backtest trade"}</Dialog.Title>
-			<Dialog.Description>
-				{isEditingTrade ? "Update this hypothetical trade." : "Log a hypothetical trade against this strategy."}
-			</Dialog.Description>
-		</Dialog.Header>
-
-		<div class="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-			<div class="space-y-1.5">
-				<div class="text-xs font-medium">Symbol</div>
-				{#if sessionInstrument}
-					<div class="border-input bg-muted/30 text-muted-foreground flex h-9 w-full items-center rounded-md border px-3 text-sm">
-						{sessionInstrument.symbol}
-					</div>
-				{:else}
-					<Select.Root type="single" bind:value={formSymbol}>
-						<Select.Trigger class="w-full rounded-md cursor-pointer">
-							<span>{formSymbol || "Select symbol"}</span>
-						</Select.Trigger>
-						<Select.Content class="rounded-md">
-							{#each instrumentStore.instruments as instrument}
-								<Select.Item value={instrument.symbol} class="cursor-pointer">
-									{instrument.symbol}
-								</Select.Item>
-							{:else}
-								<div class="px-2 py-3 text-center text-xs text-muted-foreground">No instruments yet.</div>
-							{/each}
-						</Select.Content>
-					</Select.Root>
-				{/if}
-			</div>
-
-			<div class="grid grid-cols-2 gap-3">
-				<div class="space-y-1.5">
-					<div class="text-xs font-medium">Side</div>
-					<Select.Root type="single" bind:value={formSide}>
-						<Select.Trigger class="w-full rounded-md cursor-pointer">
-							<span class="capitalize">{formSide}</span>
-						</Select.Trigger>
-						<Select.Content class="rounded-md">
-							<Select.Item value="long" class="cursor-pointer"><ChartLineUpIcon class="mr-2 h-4 w-4" /> Long</Select.Item>
-							<Select.Item value="short" class="cursor-pointer"><ChartLineDownIcon class="mr-2 h-4 w-4" /> Short</Select.Item>
-						</Select.Content>
-					</Select.Root>
-				</div>
-
-				<div class="space-y-1.5">
-					<div class="text-xs font-medium">Status</div>
-					<Select.Root type="single" bind:value={formStatus}>
-						<Select.Trigger class="w-full rounded-md cursor-pointer">
-							<span class="capitalize">{formStatus}</span>
-						</Select.Trigger>
-						<Select.Content class="rounded-md">
-							<Select.Item value="open" class="cursor-pointer"><CaretUpIcon size={16} /> Open</Select.Item>
-							<Select.Item value="closed" class="cursor-pointer"><CaretDownIcon size={16} /> Closed</Select.Item>
-						</Select.Content>
-					</Select.Root>
-				</div>
-			</div>
-
-			<div class="grid grid-cols-2 gap-3">
-				<div class="space-y-1.5">
-					<div class="text-xs font-medium">Entry price</div>
-					<Input bind:value={formEntryPrice} inputmode="decimal" placeholder="Required" class="rounded-md" />
-				</div>
-				<div class="space-y-1.5">
-					<div class="text-xs font-medium">Quantity</div>
-					<Input bind:value={formQuantity} inputmode="decimal" placeholder="Required" class="rounded-md" />
-				</div>
-			</div>
-
-			<div class="grid grid-cols-2 gap-3">
-				<div class="space-y-1.5">
-					<div class="text-xs font-medium">Stop loss</div>
-					<Input bind:value={formStopLoss} inputmode="decimal" placeholder="Required" class="rounded-md" />
-				</div>
-				<div class="space-y-1.5">
-					<div class="text-xs font-medium">Take profit</div>
-					<Input bind:value={formTakeProfit} inputmode="decimal" placeholder="Required" class="rounded-md" />
-				</div>
-			</div>
-
-			<div class="rounded-md border bg-muted/30 px-3 py-2.5 text-xs">
-				<div class="grid grid-cols-2 gap-3 tabular-nums">
-					<div>
-						<div class="text-muted-foreground">Risk / reward</div>
-						<div class="mt-0.5 font-medium">{formatRiskReward(formPlannedRR)}</div>
-					</div>
-					<div>
-						<div class="text-muted-foreground">If stopped</div>
-						<div class="mt-0.5 font-medium text-rose-700 dark:text-rose-400">{formatUsd(stopLossPnL)}</div>
-					</div>
-				</div>
-			</div>
-
-			<div class="space-y-1.5">
-				<div class="text-xs font-medium">Opened at</div>
-				<DateTimePicker value={formOpenedAt} onValueChange={(v) => (formOpenedAt = v ?? toDatetimeLocalValue(new Date()))} />
-			</div>
-
-			{#if formStatus === "closed"}
-				<div class="grid grid-cols-2 gap-3">
-					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Exit price</div>
-						<Input bind:value={formExitPrice} inputmode="decimal" placeholder="Optional" class="rounded-md" />
-					</div>
-					<div class="space-y-1.5">
-						<div class="text-xs font-medium">Closed at</div>
-						<DateTimePicker value={formClosedAt} onValueChange={(v) => (formClosedAt = v)} clearable />
-					</div>
-				</div>
-
-				<div class="space-y-1.5">
-					<div class="text-xs font-medium">P&amp;L</div>
-					<Input bind:value={formPnl} inputmode="decimal" placeholder="Auto-calculated" class="rounded-md" />
-				</div>
-			{/if}
-
-			<div class="space-y-1.5">
-				<div class="text-xs font-medium">Strategies</div>
-				<MultiSelect
-					bind:selected={formStrategyIds}
-					options={strategyStore.strategies.map((s) => ({ value: s.id, label: s.name }))}
-					placeholder={strategyStore.strategies.length === 0 ? "Create one in Strategies & Mistakes" : "Tag strategies used"}
-					emptyText="No strategies yet."
-				/>
-			</div>
-
-			{#if formStatus === "closed"}
-				<div class="space-y-1.5">
-					<div class="text-xs font-medium">Mistakes</div>
-					<MultiSelect
-						bind:selected={formMistakeIds}
-						options={mistakeStore.mistakes.map((m) => ({ value: m.id, label: m.name }))}
-						placeholder={mistakeStore.mistakes.length === 0 ? "Create one in Strategies & Mistakes" : "Tag mistakes (post-trade)"}
-						emptyText="No mistakes catalogued yet."
-					/>
-				</div>
-			{/if}
-
-			<div class="space-y-1.5">
-				<div class="text-xs font-medium">Notes</div>
-				<textarea
-					bind:value={formNotes}
-					rows="3"
-					class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex w-full rounded-md border px-3 py-2 text-xs shadow-xs outline-none focus-visible:ring-1"
-					placeholder="Optional"
-				></textarea>
-			</div>
-		</div>
-
-		<Dialog.Footer class="border-t px-5 py-3">
-			<div class="flex w-full items-center justify-between gap-2">
-				{#if isEditingTrade}
-					<Button
-						variant="ghost"
-						class="rounded-md cursor-pointer text-rose-700 hover:bg-rose-700/10 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-400"
-						disabled={deleting || saving}
-						onclick={deleteTrade}
-					>
-						<TrashIcon size={16} />
-						{deleting ? "Deleting…" : "Delete"}
-					</Button>
-				{:else}
-					<div></div>
-				{/if}
-				<div class="flex gap-2">
-					<Button variant="outline" class="rounded-md cursor-pointer" onclick={closeSheet}>Cancel</Button>
-					<Button
-						class="rounded-md cursor-pointer"
-						disabled={!formSymbol.trim() || saving || deleting}
-						onclick={submitTrade}
-					>
-						{saving ? "Saving…" : isEditingTrade ? "Save changes" : "Create trade"}
-					</Button>
-				</div>
-			</div>
-		</Dialog.Footer>
-	</Dialog.Content>
-</Dialog.Root>
+<TradeFormDialog bind:open={tradeFormOpen} editingTrade={editingTrade} {session} backtestSessionId={sessionId} />
 
 <Dialog.Root bind:open={summaryOpen}>
 	<Dialog.Content class="w-[min(100vw,960px)] sm:max-w-[960px] max-h-[90vh] flex flex-col p-0 gap-0">

@@ -31,11 +31,14 @@
 	let {
 		open = $bindable(false),
 		editingTrade = null,
-		session = null
+		session = null,
+		backtestSessionId = null
 	}: {
 		open?: boolean;
 		editingTrade?: TradeRow | null;
 		session?: Session | null;
+		/** When set, the trade is saved against this backtest session instead of the active account. */
+		backtestSessionId?: string | null;
 	} = $props();
 
 	const isEditingTrade = $derived(editingTrade != null);
@@ -592,8 +595,8 @@
 			return;
 		}
 
-		const accountId = accountStore.activeAccountId;
-		if (!accountId) {
+		const accountId = backtestSessionId ? null : accountStore.activeAccountId;
+		if (!backtestSessionId && !accountId) {
 			toast.error("Select an account in the sidebar before saving a trade.");
 			return;
 		}
@@ -708,6 +711,7 @@
 			} else {
 				const created = await tradeStore.createTrade(supabase, {
 					account_id: accountId,
+					backtest_session_id: backtestSessionId ?? null,
 					instrument_id: selectedInstrument?.id ?? null,
 					symbol,
 					side: formSide,
@@ -1519,7 +1523,7 @@
 							{:else}
 								<Button
 									class="rounded-md bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground cursor-pointer"
-									disabled={!formSymbol.trim() || saving || deleting || !session || !accountStore.activeAccountId}
+									disabled={!formSymbol.trim() || saving || deleting || !session || (!backtestSessionId && !accountStore.activeAccountId)}
 									onclick={submitTradeForm}
 								>
 									{saving ? "Saving…" : isEditingTrade ? "Save changes" : "Create trade"}
