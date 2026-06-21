@@ -20,6 +20,7 @@
 	import { tradeStore, type TradeExecutionInput } from "$lib/stores/trades.svelte";
 	import { accountStore } from "$lib/stores/accounts.svelte";
 	import { instrumentStore, instrumentPnl } from "$lib/stores/instruments.svelte";
+	import { backtestSessionStore } from "$lib/stores/backtest-sessions.svelte";
 	import { strategyStore } from "$lib/stores/strategies.svelte";
 	import { mistakeStore } from "$lib/stores/mistakes.svelte";
 	import { checklistStore } from "$lib/stores/checklist.svelte";
@@ -505,7 +506,23 @@
 		return entry != null && stop != null ? priceMovePnl(entry, stop) : null;
 	});
 
+	const backtestSession = $derived(
+		backtestSessionId
+			? backtestSessionStore.sessions?.find((s) => s.id === backtestSessionId) ?? backtestSessionStore.current
+			: null
+	);
+	const lockedInstrument = $derived.by(() => {
+		const sessInstrumentId = backtestSession?.instrument_id;
+		if (!sessInstrumentId) return null;
+		return instrumentStore.instruments?.find((i) => i.id === sessInstrumentId) ?? null;
+	});
+	const instrumentLocked = $derived(!!backtestSessionId && !!lockedInstrument);
+
 	$effect(() => {
+		if (lockedInstrument && formSymbol !== lockedInstrument.symbol) {
+			formSymbol = lockedInstrument.symbol;
+			return;
+		}
 		const first = instrumentStore.instruments?.[0];
 		if (!first) return;
 
@@ -827,20 +844,27 @@
 						<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Instrument</h3>
 						<div class="space-y-1.5">
 							<div class="text-xs font-medium">Symbol</div>
-							<Select.Root type="single" bind:value={formSymbol}>
-								<Select.Trigger class="w-full rounded-md cursor-pointer">
+							{#if instrumentLocked}
+								<div class="flex h-9 w-full items-center justify-between rounded-md border bg-muted/40 px-3 text-sm">
 									<span class="capitalize">{formSymbol}</span>
-								</Select.Trigger>
-								<Select.Content class="rounded-md">
-									{#each instrumentStore.instruments as instrument}
-										<Select.Item value={instrument.symbol} class="cursor-pointer">
-											{instrument.symbol}
-										</Select.Item>
-									{:else}
-										<div class="px-2 py-3 text-center text-xs text-muted-foreground">No instruments yet.</div>
-									{/each}
-								</Select.Content>
-							</Select.Root>
+									<span class="text-[10px] uppercase tracking-wide text-muted-foreground">From session</span>
+								</div>
+							{:else}
+								<Select.Root type="single" bind:value={formSymbol}>
+									<Select.Trigger class="w-full rounded-md cursor-pointer">
+										<span class="capitalize">{formSymbol}</span>
+									</Select.Trigger>
+									<Select.Content class="rounded-md">
+										{#each instrumentStore.instruments as instrument}
+											<Select.Item value={instrument.symbol} class="cursor-pointer">
+												{instrument.symbol}
+											</Select.Item>
+										{:else}
+											<div class="px-2 py-3 text-center text-xs text-muted-foreground">No instruments yet.</div>
+										{/each}
+									</Select.Content>
+								</Select.Root>
+							{/if}
 						</div>
 						<div class="grid grid-cols-2 gap-3">
 							<div class="space-y-1.5">
@@ -1113,7 +1137,40 @@
 							<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Exit</h3>
 							{#if !useFills}
 								<div class="space-y-1.5">
-									<div class="text-xs font-medium">Exit price</div>
+									<div class="flex items-center justify-between gap-2">
+										<div class="text-xs font-medium">Exit price</div>
+										<div class="flex items-center gap-1">
+											<Button
+												type="button"
+												variant="outline"
+												size="sm"
+												class="h-6 rounded-md px-2 text-[10px] cursor-pointer text-emerald-700 dark:text-emerald-400 disabled:opacity-50"
+												disabled={!formTakeProfit.trim()}
+												onclick={() => { if (formTakeProfit.trim()) formExitPrice = formTakeProfit.trim(); }}
+											>
+												TP
+											</Button>
+											<Button
+												type="button"
+												variant="outline"
+												size="sm"
+												class="h-6 rounded-md px-2 text-[10px] cursor-pointer text-rose-700 dark:text-rose-400 disabled:opacity-50"
+												disabled={!formStopLoss.trim()}
+												onclick={() => { if (formStopLoss.trim()) formExitPrice = formStopLoss.trim(); }}
+											>
+												SL
+											</Button>
+											<Button
+												type="button"
+												variant="ghost"
+												size="sm"
+												class="h-6 rounded-md px-2 text-[10px] cursor-pointer"
+												onclick={() => { formExitPrice = ""; }}
+											>
+												Manual
+											</Button>
+										</div>
+									</div>
 									<Input bind:value={formExitPrice} inputmode="decimal" placeholder="Optional" class="rounded-md" />
 								</div>
 							{:else}

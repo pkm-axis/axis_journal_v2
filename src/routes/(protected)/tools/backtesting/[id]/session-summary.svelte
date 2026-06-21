@@ -36,6 +36,12 @@
 		strategy_ids?: string[];
 		mistake_ids?: string[];
 		instrument_id: string | null;
+		emotional_states?: string[] | null;
+		confidence?: number | null;
+		mental_state?: string | null;
+		followed_plan?: "yes" | "no" | "partial" | null;
+		entry_reason?: string | null;
+		exit_reason?: string | null;
 	}
 
 	interface NamedRecord {
@@ -325,6 +331,14 @@
 					id,
 					name: mistakeById.get(id) ?? null,
 				})),
+				psychology: {
+					emotional_states: t.emotional_states ?? [],
+					confidence: t.confidence ?? null,
+					mental_state: t.mental_state ?? null,
+					followed_plan: t.followed_plan ?? null,
+					entry_reason: t.entry_reason ?? null,
+					exit_reason: t.exit_reason ?? null,
+				},
 			})),
 		};
 	}
@@ -468,6 +482,26 @@
 					.filter(Boolean) as string[];
 				if (stratNames.length) lines.push(`- Strategies: ${stratNames.join(", ")}`);
 				if (mistakeNames.length) lines.push(`- Mistakes: ${mistakeNames.join(", ")}`);
+
+				const emotions = (t.emotional_states ?? []).filter(Boolean);
+				const hasPsych =
+					emotions.length > 0 ||
+					t.confidence != null ||
+					(t.mental_state?.trim() ?? "") !== "" ||
+					t.followed_plan != null ||
+					(t.entry_reason?.trim() ?? "") !== "" ||
+					(t.exit_reason?.trim() ?? "") !== "";
+				if (hasPsych) {
+					lines.push("");
+					lines.push("**Psychology:**");
+					if (emotions.length) lines.push(`- Emotional states: ${emotions.join(", ")}`);
+					if (t.confidence != null) lines.push(`- Confidence: ${t.confidence}/10`);
+					if (t.mental_state?.trim()) lines.push(`- Mental state: ${t.mental_state}`);
+					if (t.followed_plan != null) lines.push(`- Followed plan: ${t.followed_plan}`);
+					if (t.entry_reason?.trim()) lines.push(`- Entry reason: ${t.entry_reason}`);
+					if (t.exit_reason?.trim()) lines.push(`- Exit reason: ${t.exit_reason}`);
+				}
+
 				if (t.notes?.trim()) {
 					lines.push("");
 					lines.push("**Notes:**");
