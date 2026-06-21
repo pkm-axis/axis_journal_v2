@@ -7,6 +7,17 @@
 	import { supabase } from "$lib/supabase/client";
 	import { tradeStore } from "$lib/stores/trades.svelte";
 	import { accountStore } from "$lib/stores/accounts.svelte";
+	import { Button } from "$lib/components/ui/button";
+	import { PnlShareDialog } from "$lib/components/pnl-share-sheet";
+	import { ShareNetworkIcon } from "phosphor-svelte";
+
+	let shareOpen = $state(false);
+
+	function fmtUsdShare(v: number) {
+		return new Intl.NumberFormat(undefined, {
+			style: "currency", currency: "USD", signDisplay: "exceptZero",
+		}).format(v);
+	}
 
 	let session = $state<{ user: { id: string } } | null>(null);
 	const loading = $derived(tradeStore.loading);
@@ -169,11 +180,23 @@
 
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
 	<div class="container mx-auto max-w-5xl space-y-6 p-4 md:p-6">
-		<div>
-			<h1 class="text-2xl font-bold tracking-tight">Risk & Streaks</h1>
-			<p class="text-sm text-muted-foreground">
-				Drawdown depth, winning and losing runs, and month-over-month returns.
-			</p>
+		<div class="flex items-start justify-between gap-3">
+			<div>
+				<h1 class="text-2xl font-bold tracking-tight">Risk & Streaks</h1>
+				<p class="text-sm text-muted-foreground">
+					Drawdown depth, winning and losing runs, and month-over-month returns.
+				</p>
+			</div>
+			<Button
+				variant="outline"
+				size="sm"
+				class="rounded-md cursor-pointer"
+				onclick={() => (shareOpen = true)}
+				disabled={loading || closedSorted.length === 0}
+			>
+				<ShareNetworkIcon size={16} />
+				Share
+			</Button>
 		</div>
 
 		<!-- Top-level stats -->
@@ -353,3 +376,20 @@
 		{/if}
 	</div>
 </ScrollArea>
+
+<PnlShareDialog
+	bind:open={shareOpen}
+	variant="analytics"
+	title="Risk & Streaks"
+	subtitle={`${closedSorted.length} closed ${closedSorted.length === 1 ? "trade" : "trades"}`}
+	badge="RISK · STREAKS"
+	headlineLabel="Max Drawdown"
+	headlineValue={drawdown.maxDD > 0 ? fmtUsdShare(-drawdown.maxDD) : "—"}
+	headlinePnl={drawdown.maxDD > 0 ? -drawdown.maxDD : null}
+	stats={[
+		{ label: "Current DD", value: drawdown.currentDD > 0 ? fmtUsdShare(-drawdown.currentDD) : "At highs", color: drawdown.currentDD > 0 ? "loss" : "win" },
+		{ label: "Win streak", value: streakInfo.longestWin.length ? String(streakInfo.longestWin.length) : "—", color: "win" },
+		{ label: "Loss streak", value: streakInfo.longestLoss.length ? String(streakInfo.longestLoss.length) : "—", color: "loss" },
+	]}
+	footnote={drawdown.maxDDPct == null ? null : `Max DD = ${(-drawdown.maxDDPct).toFixed(2)}% of peak equity`}
+/>

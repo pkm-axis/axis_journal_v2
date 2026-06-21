@@ -8,6 +8,17 @@
 	import { accountStore } from "$lib/stores/accounts.svelte";
 	import { getAuthToken } from "$lib/utils/auth-token";
 	import type { Trade } from "$lib/stores/trades.svelte";
+	import { Button } from "$lib/components/ui/button";
+	import { PnlShareDialog } from "$lib/components/pnl-share-sheet";
+	import { ShareNetworkIcon } from "phosphor-svelte";
+
+	let shareOpen = $state(false);
+
+	function fmtUsdShare(v: number) {
+		return new Intl.NumberFormat(undefined, {
+			style: "currency", currency: "USD", signDisplay: "exceptZero",
+		}).format(v);
+	}
 
 	let session = $state<{ user: { id: string } } | null>(null);
 	let loading = $state(true);
@@ -168,11 +179,23 @@
 
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
 	<div class="container mx-auto max-w-6xl space-y-6 p-4 md:p-6">
-		<div>
-			<h1 class="text-2xl font-bold tracking-tight">Cross-account Analysis</h1>
-			<p class="text-sm text-muted-foreground">
-				Side-by-side performance for every account you have.
-			</p>
+		<div class="flex items-start justify-between gap-3">
+			<div>
+				<h1 class="text-2xl font-bold tracking-tight">Cross-account Analysis</h1>
+				<p class="text-sm text-muted-foreground">
+					Side-by-side performance for every account you have.
+				</p>
+			</div>
+			<Button
+				variant="outline"
+				size="sm"
+				class="rounded-md cursor-pointer"
+				onclick={() => (shareOpen = true)}
+				disabled={loading || perAccount.length === 0}
+			>
+				<ShareNetworkIcon size={16} />
+				Share
+			</Button>
 		</div>
 
 		<!-- Aggregate stats -->
@@ -317,3 +340,19 @@
 		</div>
 	</div>
 </ScrollArea>
+
+<PnlShareDialog
+	bind:open={shareOpen}
+	variant="analytics"
+	title="Cross-account Analysis"
+	subtitle={`${totals.accounts} ${totals.accounts === 1 ? "account" : "accounts"}`}
+	badge="CROSS-ACCOUNT"
+	headlineLabel="Combined Net P&L"
+	headlineValue={totals.closedCount === 0 ? "—" : fmtUsdShare(totals.netPnl)}
+	headlinePnl={totals.netPnl}
+	stats={[
+		{ label: "Accounts", value: String(totals.accounts) },
+		{ label: "Total trades", value: String(totals.total) },
+		{ label: "Win rate", value: totals.winRate == null ? "—" : `${Math.round(totals.winRate * 100)}%` },
+	]}
+/>

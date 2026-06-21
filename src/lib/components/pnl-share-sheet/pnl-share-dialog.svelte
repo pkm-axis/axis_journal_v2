@@ -56,7 +56,22 @@
 		tradeBars: DayBar[];
 	};
 
-	type Props = { open: boolean } & (MonthProps | TradeProps | SessionProps);
+	type StatTile = { label: string; value: string; color?: "default" | "win" | "loss" };
+
+	type AnalyticsProps = {
+		variant: "analytics";
+		title: string;
+		subtitle?: string | null;
+		badge?: string | null;
+		headlineLabel: string;
+		headlineValue: string;
+		/** When provided, colorizes the headline value (>0 green, <0 red). */
+		headlinePnl?: number | null;
+		stats: StatTile[];
+		footnote?: string | null;
+	};
+
+	type Props = { open: boolean } & (MonthProps | TradeProps | SessionProps | AnalyticsProps);
 
 	let { open = $bindable(false), ...data }: Props = $props();
 
@@ -70,17 +85,20 @@
 	const filename = $derived.by(() => {
 		if (data.variant === "month") return `pnl-${MONTHS[data.month].toLowerCase()}-${data.year}.png`;
 		if (data.variant === "trade") return `trade-${data.symbol}.png`;
+		if (data.variant === "analytics") return `analytics-${slug(data.title)}.png`;
 		return `backtest-${slug(data.name)}.png`;
 	});
 
 	const title = $derived.by(() => {
 		if (data.variant === "month") return "Share P&L Card";
 		if (data.variant === "trade") return "Share Trade";
+		if (data.variant === "analytics") return "Share Analytics";
 		return "Share Backtest";
 	});
 	const description = $derived.by(() => {
 		if (data.variant === "month") return "Download your monthly summary as an image to share anywhere.";
 		if (data.variant === "trade") return "Download this trade as an image to share anywhere.";
+		if (data.variant === "analytics") return "Download this analytics snapshot as an image to share anywhere.";
 		return "Download this backtest session as an image to share anywhere.";
 	});
 
@@ -246,7 +264,7 @@
 								{data.status.toUpperCase()}
 							</span>
 						</div>
-					{:else}
+					{:else if data.variant === "session"}
 						<div style="display:flex; align-items:center; gap:6px;">
 							<span style={`display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:600; background:${theme.accent}22; color:${theme.accent}; letter-spacing:0.05em;`}>
 								BACKTEST
@@ -257,6 +275,10 @@
 								</span>
 							{/if}
 						</div>
+					{:else}
+						<span style={`display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:600; background:${theme.accent}22; color:${theme.accent}; letter-spacing:0.05em;`}>
+							{(data.badge ?? "ANALYTICS").toUpperCase()}
+						</span>
 					{/if}
 				</div>
 
@@ -333,7 +355,7 @@
 							</div>
 						{/if}
 					</div>
-				{:else}
+				{:else if data.variant === "session"}
 					<!-- Session: name + big P&L + bars + stats -->
 					<div style="color:#94a3b8; font-size:11px; font-weight:500; letter-spacing:0.05em; text-transform:uppercase; margin-bottom:2px;">Session</div>
 					<div style="color:#e2e8f0; font-size:1.25rem; font-weight:700; letter-spacing:-0.01em; line-height:1.2; margin-bottom:16px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
@@ -375,6 +397,40 @@
 					{#if data.periodStart || data.periodEnd}
 						<div style="margin-top:16px; color:#64748b; font-size:11px; font-weight:500; letter-spacing:0.02em;">
 							{fmtDate(data.periodStart)} → {fmtDate(data.periodEnd)}
+						</div>
+					{/if}
+				{:else}
+					<!-- Analytics: title + headline + flexible stat tiles -->
+					<div style="color:#94a3b8; font-size:11px; font-weight:500; letter-spacing:0.05em; text-transform:uppercase; margin-bottom:2px;">Snapshot</div>
+					<div style="color:#e2e8f0; font-size:1.25rem; font-weight:700; letter-spacing:-0.01em; line-height:1.2; margin-bottom:4px;">
+						{data.title}
+					</div>
+					{#if data.subtitle}
+						<div style="color:#64748b; font-size:11px; font-weight:500; margin-bottom:16px;">{data.subtitle}</div>
+					{:else}
+						<div style="margin-bottom:16px;"></div>
+					{/if}
+
+					<div style="color:#94a3b8; font-size:11px; font-weight:500; letter-spacing:0.05em; text-transform:uppercase; margin-bottom:4px;">{data.headlineLabel}</div>
+					<div style={`font-size:2.5rem; font-weight:700; letter-spacing:-0.02em; line-height:1; margin-bottom:20px; color:${data.headlinePnl != null ? pnlColor(data.headlinePnl) : '#e2e8f0'};`}>
+						{data.headlineValue}
+					</div>
+
+					{#if data.stats.length > 0}
+						<div style={`display:grid; grid-template-columns:repeat(${Math.min(3, data.stats.length)},1fr); gap:12px;`}>
+							{#each data.stats as s}
+								{@const c = s.color === "win" ? "#4ade80" : s.color === "loss" ? "#f87171" : "#e2e8f0"}
+								<div>
+									<div style="color:#64748b; font-size:10px; font-weight:500; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:2px;">{s.label}</div>
+									<div style={`color:${c}; font-size:16px; font-weight:600;`}>{s.value}</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+
+					{#if data.footnote}
+						<div style="margin-top:16px; color:#64748b; font-size:11px; font-weight:500; letter-spacing:0.02em;">
+							{data.footnote}
 						</div>
 					{/if}
 				{/if}

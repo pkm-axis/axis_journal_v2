@@ -10,6 +10,17 @@
 	import { strategyStore } from "$lib/stores/strategies.svelte";
 	import { mistakeStore } from "$lib/stores/mistakes.svelte";
 	import { payoutStore } from "$lib/stores/payouts.svelte";
+	import { Button } from "$lib/components/ui/button";
+	import { PnlShareDialog } from "$lib/components/pnl-share-sheet";
+	import { ShareNetworkIcon } from "phosphor-svelte";
+
+	let shareOpen = $state(false);
+
+	function fmtUsdShare(v: number) {
+		return new Intl.NumberFormat(undefined, {
+			style: "currency", currency: "USD", signDisplay: "exceptZero",
+		}).format(v);
+	}
 
 	let session = $state<{ user: { id: string } } | null>(null);
 	const loading = $derived(tradeStore.loading);
@@ -175,6 +186,23 @@
 		void tradeStore.getTradesByAccount(supabase);
 		void payoutStore.getAllPayouts(supabase);
 	});
+
+	const overviewStats = $derived.by(() => {
+		let netPnl = 0;
+		let wins = 0;
+		for (const t of closedTrades) {
+			const pnl = num(t.pnl) ?? 0;
+			netPnl += pnl;
+			if (pnl > 0) wins++;
+		}
+		const closed = closedTrades.length;
+		return {
+			netPnl,
+			closed,
+			winRate: closed > 0 ? wins / closed : null,
+			topSymbol: bySymbol[0]?.label ?? null,
+		};
+	});
 </script>
 
 {#snippet bucketTable(buckets: Bucket[], emptyText: string)}
@@ -280,11 +308,23 @@
 
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
 	<div class="container mx-auto max-w-8xl space-y-6 p-4 md:p-6">
-		<div>
-			<h1 class="text-2xl font-bold tracking-tight">Analytics</h1>
-			<p class="text-sm text-muted-foreground">
-				How your closed trades break down across different dimensions.
-			</p>
+		<div class="flex items-start justify-between gap-3">
+			<div>
+				<h1 class="text-2xl font-bold tracking-tight">Analytics</h1>
+				<p class="text-sm text-muted-foreground">
+					How your closed trades break down across different dimensions.
+				</p>
+			</div>
+			<Button
+				variant="outline"
+				size="sm"
+				class="rounded-md cursor-pointer"
+				onclick={() => (shareOpen = true)}
+				disabled={loading || overviewStats.closed === 0}
+			>
+				<ShareNetworkIcon size={16} />
+				Share
+			</Button>
 		</div>
 
 		{#if propFirmGroups.length > 0}
@@ -426,3 +466,19 @@
 		</section>
 	</div>
 </ScrollArea>
+
+<PnlShareDialog
+	bind:open={shareOpen}
+	variant="analytics"
+	title="Analytics"
+	subtitle={`${overviewStats.closed} closed ${overviewStats.closed === 1 ? "trade" : "trades"}`}
+	badge="ANALYTICS"
+	headlineLabel="Net P&L"
+	headlineValue={overviewStats.closed === 0 ? "—" : fmtUsdShare(overviewStats.netPnl)}
+	headlinePnl={overviewStats.netPnl}
+	stats={[
+		{ label: "Closed trades", value: String(overviewStats.closed) },
+		{ label: "Win rate", value: overviewStats.winRate == null ? "—" : `${Math.round(overviewStats.winRate * 100)}%` },
+		{ label: "Top symbol", value: overviewStats.topSymbol ?? "—" },
+	]}
+/>
