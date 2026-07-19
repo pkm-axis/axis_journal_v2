@@ -16,6 +16,11 @@
 		{ value: "live", label: "Live (coming soon)", disabled: true },
 		{ value: "crypto", label: "Crypto (coming soon)", disabled: true },
 	];
+	const DRAWDOWN_TYPES: { value: string; label: string; disabled?: boolean }[] = [
+		{ value: "eod", label: "End of day (EOD)" },
+		{ value: "intraday", label: "Intraday (trailing)" },
+		{ value: "static", label: "Static (coming soon)", disabled: true },
+	];
 	const loading = $derived(accountStore.loading);
 
 	let dialogOpen = $state(false);
@@ -30,6 +35,7 @@
 	let formDailyLossLimit = $state<string>("");
 	let formConsistencyRule = $state("");
 	let formMaxContracts = $state("");
+	let formDrawdownType = $state<string>("eod");
 	let formChallengeCost = $state<string>("");
 	let formProfitSplit = $state<string>("");
 	let saving = $state(false);
@@ -59,6 +65,7 @@
 		formDailyLossLimit = "";
 		formConsistencyRule = "";
 		formMaxContracts = "";
+		formDrawdownType = "eod";
 		formChallengeCost = "";
 		formProfitSplit = "";
 	}
@@ -83,6 +90,7 @@
 		formDailyLossLimit = a.prop_firm_daily_loss_limit != null ? String(a.prop_firm_daily_loss_limit) : "";
 		formConsistencyRule = a.prop_firm_consistency_rule ?? "";
 		formMaxContracts = a.prop_firm_max_contracts ?? "";
+		formDrawdownType = a.prop_firm_drawdown_type ?? "eod";
 		formChallengeCost = a.challenge_cost != null ? String(a.challenge_cost) : "";
 		formProfitSplit = a.profit_split != null ? String(a.profit_split * 100) : "";
 		dialogOpen = true;
@@ -124,6 +132,7 @@
 				payload.prop_firm_daily_loss_limit = numOrNull(formDailyLossLimit);
 				payload.prop_firm_consistency_rule = strOrNull(formConsistencyRule);
 				payload.prop_firm_max_contracts = strOrNull(formMaxContracts);
+				payload.prop_firm_drawdown_type = formDrawdownType || null;
 			}
 			if (isPropFirm) {
 				payload.prop_firm_name = strOrNull(formPropFirmName);
@@ -394,8 +403,27 @@
 								<div class="text-xs font-medium">Max contracts</div>
 								<Input bind:value={formMaxContracts} placeholder="e.g. 10" class="rounded-md" />
 							</div>
+							<div class="space-y-1.5">
+								<div class="text-xs font-medium">Drawdown type</div>
+								<Select.Root type="single" bind:value={formDrawdownType}>
+									<Select.Trigger class="w-full rounded-md cursor-pointer">
+										<span>{DRAWDOWN_TYPES.find((t) => t.value === formDrawdownType)?.label ?? "Select"}</span>
+									</Select.Trigger>
+									<Select.Content class="rounded-md">
+										{#each DRAWDOWN_TYPES as t}
+											<Select.Item value={t.value} disabled={t.disabled} class="cursor-pointer">{t.label}</Select.Item>
+										{/each}
+									</Select.Content>
+								</Select.Root>
+							</div>
 						{/if}
 					</div>
+					{#if isPropFirm && formDrawdownType === "intraday"}
+						<p class="text-[11px] text-muted-foreground leading-snug">
+							Intraday drawdown trails your peak equity during the day. When logging a trade you'll be
+							asked for its highest unrealized profit so cushion consumption can be tracked.
+						</p>
+					{/if}
 					{#if isPropFirm}
 						<div class="space-y-1.5">
 							<div class="text-xs font-medium">Consistency rule</div>

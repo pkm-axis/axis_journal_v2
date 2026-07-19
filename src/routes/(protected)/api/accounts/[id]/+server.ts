@@ -30,6 +30,7 @@ export const PATCH: RequestHandler = async ({ params, request, locals: { supabas
 		"prop_firm_type",
 		"prop_firm_consistency_rule",
 		"prop_firm_max_contracts",
+		"prop_firm_drawdown_type",
 	];
 	const numberFields = [
 		"starting_balance",
@@ -60,6 +61,7 @@ export const PATCH: RequestHandler = async ({ params, request, locals: { supabas
 		patch.prop_firm_daily_loss_limit = null;
 		patch.prop_firm_consistency_rule = null;
 		patch.prop_firm_max_contracts = null;
+		patch.prop_firm_drawdown_type = null;
 		patch.challenge_cost = null;
 	} else if (patch.account_type && patch.account_type !== "prop firm") {
 		patch.prop_firm_name = null;
@@ -69,6 +71,7 @@ export const PATCH: RequestHandler = async ({ params, request, locals: { supabas
 		patch.prop_firm_daily_loss_limit = null;
 		patch.prop_firm_consistency_rule = null;
 		patch.prop_firm_max_contracts = null;
+		patch.prop_firm_drawdown_type = null;
 		patch.challenge_cost = null;
 	}
 

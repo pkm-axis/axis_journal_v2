@@ -52,6 +52,7 @@
     let dailyLossLimit: number | null = $state(null);
     let consistencyRule: string = $state('');
     let maxContracts: string = $state('');
+    let drawdownType: string = $state('eod');
     let challengeCost: number | null = $state(null);
     let profitSplitPct: string = $state("");
 
@@ -79,6 +80,7 @@
             prop_firm_daily_loss_limit: accountType === 'prop firm' ? dailyLossLimit : null,
             prop_firm_consistency_rule: accountType === 'prop firm' ? consistencyRule : null,
             prop_firm_max_contracts: accountType === 'prop firm' ? maxContracts : null,
+            prop_firm_drawdown_type: accountType === 'prop firm' ? drawdownType : null,
             challenge_cost: accountType === 'prop firm' ? challengeCost : null,
             profit_split: accountType === 'prop firm' && profitSplitPct ? Number(profitSplitPct) / 100 : null,
         }
@@ -261,6 +263,20 @@
                     <div class="space-y-1.5">
                         <div class="text-xs font-medium">Max Contracts</div>
                         <Input bind:value={maxContracts} placeholder="4 minis/40 micros" class="rounded-md" />
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <div class="text-xs font-medium">Drawdown Type</div>
+                        <Select.Root type="single" bind:value={drawdownType}>
+                            <Select.Trigger class="w-full rounded-md cursor-pointer">
+                                <span>{drawdownType === 'intraday' ? 'Intraday (trailing)' : drawdownType === 'static' ? 'Static' : 'End of day (EOD)'}</span>
+                            </Select.Trigger>
+                            <Select.Content class="rounded-md">
+                                <Select.Item value="eod" class="cursor-pointer">End of day (EOD)</Select.Item>
+                                <Select.Item value="intraday" class="cursor-pointer">Intraday (trailing)</Select.Item>
+                                <Select.Item value="static" class="cursor-pointer" disabled>Static (coming soon)</Select.Item>
+                            </Select.Content>
+                        </Select.Root>
                     </div>
                 {/if}
             {/if}

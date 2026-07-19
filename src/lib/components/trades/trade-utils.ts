@@ -17,6 +17,7 @@ export interface TradeRow {
 	take_profit: string | number | null;
 	risk: string | number | null;
 	pnl: string | number | null;
+	highest_unrealized_profit?: string | number | null;
 	r_multiple: string | number | null;
 	opened_at: string;
 	closed_at: string | null;

@@ -21,6 +21,7 @@ export interface Account {
     prop_firm_daily_loss_limit?: number | null;
     prop_firm_consistency_rule?: string | null;
     prop_firm_max_contracts?: string | null;
+    prop_firm_drawdown_type?: "eod" | "intraday" | "static" | null;
     challenge_cost?: number | null;
     profit_split?: number | null;
     parent_account_id?: string | null;

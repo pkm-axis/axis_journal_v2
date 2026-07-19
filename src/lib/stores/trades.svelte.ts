@@ -21,6 +21,7 @@ export type TradeCreatePayload = {
     risk: number;
     pnl: number;
     commission?: number;
+    highest_unrealized_profit?: number | null;
     opened_at: string;
     closed_at?: string | null;
     notes?: string;
@@ -52,6 +53,7 @@ export interface Trade {
     risk: string | number | null;
     pnl: string | number | null;
     commission: string | number | null;
+    highest_unrealized_profit: string | number | null;
     r_multiple: string | number | null;
     opened_at: string;
     closed_at: string | null;
@@ -86,6 +88,7 @@ export type TradeUpdatePayload = {
     risk: number;
     pnl: number;
     commission?: number;
+    highest_unrealized_profit?: number | null;
     opened_at: string;
     closed_at?: string | null;
     notes?: string | null;

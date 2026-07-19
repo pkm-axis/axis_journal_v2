@@ -86,6 +86,32 @@
 	const dailyLossLimit = $derived(account.prop_firm_daily_loss_limit ?? null);
 	const consistencyRule = $derived(account.prop_firm_consistency_rule ?? null);
 
+	const isIntradayDrawdown = $derived(account.prop_firm_drawdown_type === "intraday");
+
+	// Intraday cushion (resets daily). Uses trades opened today.
+	//   Remaining Cushion = Max Drawdown + Realized Profit − Highest Unrealized Profit
+	const intradayCushion = $derived.by(() => {
+		if (!isIntradayDrawdown || maxDrawdown == null) return null;
+		const start = new Date();
+		start.setHours(0, 0, 0, 0);
+		const startMs = start.getTime();
+		const endMs = startMs + 24 * 60 * 60 * 1000;
+		const todays = trades.filter((t) => {
+			if (!t.opened_at) return false;
+			const at = new Date(t.opened_at).getTime();
+			return at >= startMs && at < endMs;
+		});
+		let realized = 0;
+		let highestUnrealized = 0;
+		for (const t of todays) {
+			if (t.status === "closed") realized += num(t.pnl);
+			highestUnrealized += num(t.highest_unrealized_profit);
+		}
+		const remaining = maxDrawdown + realized - highestUnrealized;
+		const used = Math.max(0, highestUnrealized - realized);
+		return { realized, highestUnrealized, remaining, used, count: todays.length };
+	});
+
 	// Parse "30%" or "0.3" into a fraction (0–1).
 	const consistencyFraction = $derived.by(() => {
 		if (!consistencyRule) return null;
@@ -206,7 +232,39 @@
 			{/if}
 		</div>
 
-		<!-- Max drawdown -->
+		<!-- Max drawdown / intraday cushion -->
+		{#if isIntradayDrawdown && intradayCushion != null && maxDrawdown != null}
+			{@const c = intradayCushion}
+			{@const pct = clampPct((c.used / maxDrawdown) * 100)}
+			{@const danger = pct >= 70}
+			{@const breached = c.remaining <= 0}
+			<div class="bg-background p-4">
+				<div class="text-xs text-muted-foreground">Intraday cushion (today)</div>
+				<div class={[
+					"mt-1 flex items-center gap-1.5 text-xl font-semibold tabular-nums",
+					breached && "text-rose-700 dark:text-rose-400",
+					danger && !breached && "text-amber-700 dark:text-amber-400",
+					!danger && !breached && "text-emerald-700 dark:text-emerald-400",
+				]}>
+					{fmtUsd(c.remaining)}
+					{#if danger || breached}
+						<WarningIcon size={16} weight="fill" />
+					{/if}
+				</div>
+				<div class="mt-1 h-1.5 w-full rounded-sm bg-muted">
+					<div
+						class={[
+							"h-full rounded-sm",
+							breached ? "bg-rose-700" : danger ? "bg-amber-600" : "bg-emerald-700/70",
+						]}
+						style={`width:${pct}%`}
+					></div>
+				</div>
+				<div class="mt-1 text-[11px] text-muted-foreground">
+					{fmtUsd(c.used)} used · cap {fmtUsd(maxDrawdown)}
+				</div>
+			</div>
+		{:else}
 		<div class="bg-background p-4">
 			<div class="text-xs text-muted-foreground">Max drawdown</div>
 			{#if maxDrawdown == null}
@@ -241,6 +299,7 @@
 				</div>
 			{/if}
 		</div>
+		{/if}
 
 		<!-- Daily loss limit -->
 		<div class="bg-background p-4">

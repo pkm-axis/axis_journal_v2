@@ -14,6 +14,7 @@ const updatableKeys = [
 	"risk",
 	"pnl",
 	"commission",
+	"highest_unrealized_profit",
 	"opened_at",
 	"closed_at",
 	"notes",

@@ -24,6 +24,7 @@ export async function POST({ request, locals: { supabase, safeGetSession } }) {
         risk,
         pnl,
         commission,
+        highest_unrealized_profit,
         opened_at,
         closed_at,
         notes,
@@ -62,6 +63,7 @@ export async function POST({ request, locals: { supabase, safeGetSession } }) {
                 risk,
                 pnl,
                 commission: commission ?? 0,
+                highest_unrealized_profit: highest_unrealized_profit ?? null,
                 opened_at,
                 closed_at,
                 notes

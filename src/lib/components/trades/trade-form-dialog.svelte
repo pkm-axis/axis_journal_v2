@@ -83,6 +83,8 @@
 	let formExitPrice = $state("");
 	let formClosedAt = $state<string | null>(null);
 	let formPnl = $state("");
+	/** Intraday-drawdown accounts: peak open profit the trade reached, consumes daily cushion. */
+	let formHighestUnrealized = $state("");
 	let formStopLoss = $state("");
 	let formTakeProfit = $state("");
 	/** Last P&amp;L we auto-filled from exit prices; edit P&amp;L to override. */
@@ -127,6 +129,7 @@
 		formExitPrice = "";
 		formClosedAt = null;
 		formPnl = "";
+		formHighestUnrealized = "";
 		formStopLoss = "";
 		formTakeProfit = "";
 		lastAutoPnl = null;
@@ -169,6 +172,7 @@
 		formExitPrice = num(t.exit_price) != null ? String(num(t.exit_price)) : "";
 		formClosedAt = t.closed_at ? toDatetimeLocalValue(new Date(t.closed_at)) : null;
 		formPnl = num(t.pnl) != null ? String(num(t.pnl)) : "";
+		formHighestUnrealized = num(t.highest_unrealized_profit) != null ? String(num(t.highest_unrealized_profit)) : "";
 		lastAutoPnl = null;
 		formNotes = t.notes ?? "";
 		formStrategyIds = [...(t.strategy_ids ?? [])];
@@ -230,6 +234,19 @@
 	const selectedInstrument = $derived.by(() => {
 		return instrumentStore.instruments?.find((i) => i.symbol === formSymbol);
 	});
+
+	/** The account this trade is being recorded against (null in backtest mode). */
+	const activeAccount = $derived(
+		backtestSessionId
+			? null
+			: (accountStore.accounts.find((a) => a.id === accountStore.activeAccountId) ?? null)
+	);
+
+	/** Show the "Highest unrealized profit" field only for intraday-drawdown prop accounts. */
+	const isIntradayDrawdown = $derived(
+		activeAccount?.account_type === "prop firm" &&
+			activeAccount?.prop_firm_drawdown_type === "intraday"
+	);
 
 	const formPlannedRR = $derived.by(() => {
 		const e = num(formEntryPrice);
@@ -710,6 +727,7 @@
 					risk: dollarRisk,
 					pnl: formStatus === "closed" ? (num(formPnl) ?? 0) : 0,
 					commission: commissionBreakdown.total,
+					highest_unrealized_profit: isIntradayDrawdown ? (num(formHighestUnrealized) ?? null) : null,
 					opened_at: openedAtIso,
 					closed_at: closedAtIso,
 					notes: formNotes.trim() || null,
@@ -741,6 +759,7 @@
 					risk: dollarRisk,
 					pnl: formStatus === "closed" ? (num(formPnl) ?? 0) : 0,
 					commission: commissionBreakdown.total,
+					highest_unrealized_profit: isIntradayDrawdown ? (num(formHighestUnrealized) ?? null) : null,
 					opened_at: openedAtIso,
 					closed_at: closedAtIso,
 					notes: formNotes.trim() || undefined,
@@ -1263,6 +1282,27 @@
 									</p>
 								</div>
 							{/if}
+						</section>
+					{/if}
+
+					{#if isIntradayDrawdown}
+						{@const hu = num(formHighestUnrealized)}
+						{@const realized = num(formPnl)}
+						{@const used = hu != null && realized != null ? Math.max(0, hu - realized) : null}
+						<!-- Intraday drawdown cushion -->
+						<section class="space-y-3 border-t pt-4">
+							<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Intraday drawdown</h3>
+							<div class="space-y-1.5">
+								<div class="text-xs font-medium">Highest unrealized profit ($)</div>
+								<Input bind:value={formHighestUnrealized} inputmode="decimal" placeholder="e.g. 1000" class="rounded-md" />
+								<p class="text-[11px] text-muted-foreground leading-snug">
+									The peak open profit this trade reached before you closed it. On an intraday-trailing
+									account, the gap between this peak and your realized result is cushion you've consumed.
+									{#if used != null && (hu ?? 0) > 0}
+										<br />This trade used <span class="font-medium text-foreground tabular-nums">{formatUsd(used)}</span> of cushion.
+									{/if}
+								</p>
+							</div>
 						</section>
 					{/if}
 
