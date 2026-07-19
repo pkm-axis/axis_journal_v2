@@ -27,6 +27,7 @@
 	import { backtestSessionStore, backtestFailStatus } from "$lib/stores/backtest-sessions.svelte";
 	import { tradeStore } from "$lib/stores/trades.svelte";
 	import { instrumentStore } from "$lib/stores/instruments.svelte";
+	import { formatPrice as fmtPrice } from "$lib/utils/format";
 	import { strategyStore } from "$lib/stores/strategies.svelte";
 	import { mistakeStore } from "$lib/stores/mistakes.svelte";
 	import { toast } from "svelte-sonner";
@@ -83,10 +84,11 @@
 		return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(value);
 	}
 
-	function formatPrice(value: string | number | null | undefined) {
-		const n = num(value);
-		if (n == null) return "—";
-		return new Intl.NumberFormat(undefined, { maximumFractionDigits: 8 }).format(n);
+	function formatPrice(value: string | number | null | undefined, symbol?: string) {
+		const tickSize = symbol
+			? instrumentStore.instruments.find((i) => i.symbol === symbol)?.tick_size
+			: undefined;
+		return fmtPrice(value, tickSize);
 	}
 
 	function formatQty(value: string | number | null | undefined) {
@@ -389,11 +391,11 @@
 											{t.status}
 										</span>
 									</td>
-									<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.entry_price)}</td>
-									<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.exit_price)}</td>
+									<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.entry_price, t.symbol)}</td>
+									<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.exit_price, t.symbol)}</td>
 									<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatQty(t.quantity)}</td>
-									<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.stop_loss)}</td>
-									<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.take_profit)}</td>
+									<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.stop_loss, t.symbol)}</td>
+									<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.take_profit, t.symbol)}</td>
 									<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatRiskReward(rowRiskReward(t))}</td>
 									<td class="tabular-nums whitespace-nowrap text-xs">{formatWhen(t.opened_at)}</td>
 									<td class="text-right tabular-nums whitespace-nowrap text-xs">

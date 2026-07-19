@@ -7,7 +7,12 @@
 	import { mistakeStore } from "$lib/stores/mistakes.svelte";
 	import { checklistStore } from "$lib/stores/checklist.svelte";
 	import { num, normalizeSide } from "$lib/utils/number";
-	import { formatPrice, formatQty, formatRiskReward, formatUsd, formatWhen } from "$lib/utils/format";
+	import { formatPrice as fmtPrice, formatQty, formatRiskReward, formatUsd, formatWhen } from "$lib/utils/format";
+
+	function formatPrice(value: string | number | null | undefined, symbol: string) {
+		const tickSize = instrumentStore.instruments.find((i) => i.symbol === symbol)?.tick_size;
+		return fmtPrice(value, tickSize);
+	}
 	import { rowRiskReward, type TradeRow } from "./trade-utils";
 
 	let {
@@ -100,11 +105,11 @@
 				<div class="space-y-2">
 					<div class="text-xs font-medium text-muted-foreground uppercase tracking-wide">Trade</div>
 					<dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-						<div><dt class="text-muted-foreground">Entry</dt><dd class="tabular-nums">{formatPrice(t.entry_price)}</dd></div>
-						<div><dt class="text-muted-foreground">Exit</dt><dd class="tabular-nums">{formatPrice(t.exit_price)}</dd></div>
+						<div><dt class="text-muted-foreground">Entry</dt><dd class="tabular-nums">{formatPrice(t.entry_price, t.symbol)}</dd></div>
+						<div><dt class="text-muted-foreground">Exit</dt><dd class="tabular-nums">{formatPrice(t.exit_price, t.symbol)}</dd></div>
 						<div><dt class="text-muted-foreground">Quantity</dt><dd class="tabular-nums">{formatQty(t.quantity)}</dd></div>
-						<div><dt class="text-muted-foreground">Stop loss</dt><dd class="tabular-nums">{formatPrice(t.stop_loss)}</dd></div>
-						<div><dt class="text-muted-foreground">Take profit</dt><dd class="tabular-nums">{formatPrice(t.take_profit)}</dd></div>
+						<div><dt class="text-muted-foreground">Stop loss</dt><dd class="tabular-nums">{formatPrice(t.stop_loss, t.symbol)}</dd></div>
+						<div><dt class="text-muted-foreground">Take profit</dt><dd class="tabular-nums">{formatPrice(t.take_profit, t.symbol)}</dd></div>
 						<div><dt class="text-muted-foreground">Risk ($)</dt><dd class="tabular-nums">{formatUsd(num(t.risk))}</dd></div>
 						<div><dt class="text-muted-foreground">R-multiple</dt><dd class="tabular-nums">{num(t.r_multiple) != null ? num(t.r_multiple)!.toFixed(2) : "—"}</dd></div>
 						<div><dt class="text-muted-foreground">Market</dt><dd>{t.market ?? "—"}</dd></div>

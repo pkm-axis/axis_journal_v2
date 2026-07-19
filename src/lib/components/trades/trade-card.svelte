@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { Button } from "$lib/components/ui/button";
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
+	import { instrumentStore } from "$lib/stores/instruments.svelte";
+	import { formatPrice as fmtPrice } from "$lib/utils/format";
 	import {
 		ChartLineDownIcon,
 		ChartLineUpIcon,
@@ -88,9 +90,8 @@
 	}
 
 	function formatPrice(value: string | number | null | undefined) {
-		const n = num(value);
-		if (n == null) return "—";
-		return new Intl.NumberFormat(undefined, { maximumFractionDigits: 8 }).format(n);
+		const tickSize = instrumentStore.instruments.find((i) => i.symbol === trade.symbol)?.tick_size;
+		return fmtPrice(value, tickSize);
 	}
 
 	function formatQty(value: string | number | null | undefined) {

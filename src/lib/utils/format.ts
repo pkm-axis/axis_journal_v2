@@ -15,9 +15,29 @@ export function formatUsd(value: number | null | undefined, options: FormatUsdOp
 	}).format(value);
 }
 
-export function formatPrice(value: string | number | null | undefined): string {
+/** Decimal places implied by a tick size (e.g. 0.25 → 2, 0.0001 → 4). */
+export function decimalsForTick(tickSize: number | null | undefined): number {
+	if (!tickSize || !Number.isFinite(tickSize) || tickSize <= 0) return 0;
+	const s = Math.abs(tickSize).toString();
+	if (s.includes("e-")) return parseInt(s.split("e-")[1], 10);
+	const dot = s.indexOf(".");
+	return dot === -1 ? 0 : s.length - dot - 1;
+}
+
+export function formatPrice(
+	value: string | number | null | undefined,
+	tickSize?: number | null
+): string {
 	const n = num(value);
 	if (n == null) return "—";
+	if (tickSize && Number.isFinite(tickSize) && tickSize > 0) {
+		const rounded = Math.round(n / tickSize) * tickSize;
+		const digits = decimalsForTick(tickSize);
+		return new Intl.NumberFormat(undefined, {
+			minimumFractionDigits: digits,
+			maximumFractionDigits: digits,
+		}).format(rounded);
+	}
 	return new Intl.NumberFormat(undefined, { maximumFractionDigits: 8 }).format(n);
 }
 

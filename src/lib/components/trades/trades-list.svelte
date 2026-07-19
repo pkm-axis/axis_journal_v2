@@ -17,7 +17,13 @@
 	import { strategyStore } from "$lib/stores/strategies.svelte";
 	import { mistakeStore } from "$lib/stores/mistakes.svelte";
 	import { num, normalizeSide } from "$lib/utils/number";
-	import { formatPrice, formatQty, formatRiskReward, formatUsd, formatWhen } from "$lib/utils/format";
+	import { formatPrice as fmtPrice, formatQty, formatRiskReward, formatUsd, formatWhen } from "$lib/utils/format";
+	import { instrumentStore } from "$lib/stores/instruments.svelte";
+
+	function formatPrice(value: string | number | null | undefined, symbol: string) {
+		const tickSize = instrumentStore.instruments.find((i) => i.symbol === symbol)?.tick_size;
+		return fmtPrice(value, tickSize);
+	}
 	import { rowRiskReward, type TradeRow } from "./trade-utils";
 
 	let {
@@ -203,11 +209,11 @@
 									{t.status}
 								</span>
 							</td>
-							<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.entry_price)}</td>
-							<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.exit_price)}</td>
+							<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.entry_price, t.symbol)}</td>
+							<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.exit_price, t.symbol)}</td>
 							<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatQty(t.quantity)}</td>
-							<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.stop_loss)}</td>
-							<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.take_profit)}</td>
+							<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.stop_loss, t.symbol)}</td>
+							<td class="text-right tabular-nums whitespace-nowrap text-xs">{formatPrice(t.take_profit, t.symbol)}</td>
 							<td class="text-right tabular-nums text-xs whitespace-nowrap">{formatRiskReward(rowRiskReward(t))}</td>
 							<td class="tabular-nums text-xs whitespace-nowrap">{formatWhen(t.opened_at)}</td>
 							<td class="tabular-nums text-xs whitespace-nowrap">{formatWhen(t.closed_at)}</td>
