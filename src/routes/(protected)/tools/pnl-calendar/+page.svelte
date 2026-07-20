@@ -214,7 +214,7 @@
 					monthStats.total > 0 && "text-emerald-700 dark:text-emerald-400",
 					monthStats.total < 0 && "text-rose-700 dark:text-rose-400",
 				]}>
-					{monthStats.tradingDays === 0 ? "—" : formatUsd(monthStats.total)}
+					{formatUsd(monthStats.total)}
 				</div>
 			</div>
 			<div class="rounded-md border bg-background p-4">
@@ -224,7 +224,7 @@
 			<div class="rounded-md border bg-background p-4">
 				<div class="text-xs text-muted-foreground">Best day</div>
 				<div class="mt-1 text-2xl font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
-					{formatUsd(monthStats.best)}
+					{formatUsd(monthStats.best ?? 0)}
 				</div>
 			</div>
 			<div class="rounded-md border bg-background p-4">

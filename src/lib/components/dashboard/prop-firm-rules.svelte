@@ -83,7 +83,12 @@
 
 	const profitTarget = $derived(account.prop_firm_profit_target ?? null);
 	const maxDrawdown = $derived(account.prop_firm_max_drawdown ?? null);
-	const dailyLossLimit = $derived(account.prop_firm_daily_loss_limit ?? null);
+	// A daily loss limit is only meaningful when positive; treat null/0/negative
+	// as "no limit set" so a profitable or break-even day is never flagged.
+	const dailyLossLimit = $derived.by(() => {
+		const v = num(account.prop_firm_daily_loss_limit);
+		return v > 0 ? v : null;
+	});
 	const consistencyRule = $derived(account.prop_firm_consistency_rule ?? null);
 
 	const isIntradayDrawdown = $derived(account.prop_firm_drawdown_type === "intraday");
