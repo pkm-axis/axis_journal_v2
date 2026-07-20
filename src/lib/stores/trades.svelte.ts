@@ -133,6 +133,12 @@ export type TradeExecutionInput = {
     notes?: string | null;
 };
 
+/** One closed round-trip trade, reduced to what the P&L Calendar needs. */
+export type TradeCalendarRow = {
+    closed_at: string | null;
+    pnl: string | number | null;
+};
+
 export type TradeFilters = {
     page?: number;
     pageSize?: number;
@@ -257,6 +263,27 @@ function createTradeStore() {
                 await getTradesByAccount(supabase);
             } catch (e) {
                 console.error("Error deleting trade:", e);
+                throw e;
+            }
+        },
+        getCalendarSummary: async (
+            supabase: SupabaseClient,
+            accountId: string
+        ): Promise<TradeCalendarRow[]> => {
+            try {
+                const token = await getAuthToken(supabase);
+                const response = await fetch(
+                    `/api/trades/calendar-summary?accountId=${encodeURIComponent(accountId)}`,
+                    {
+                        credentials: "include",
+                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                    }
+                );
+                const result = await response.json();
+                if (!result.success) throw new Error(result.message ?? "Failed to load calendar summary");
+                return (result.data ?? []) as TradeCalendarRow[];
+            } catch (e) {
+                console.error("Error loading calendar summary:", e);
                 throw e;
             }
         },

@@ -6,7 +6,7 @@
 	import { Button } from "$lib/components/ui/button";
 	import { CaretLeftIcon, CaretRightIcon, ShareNetworkIcon } from "phosphor-svelte";
 	import { supabase } from "$lib/supabase/client";
-	import { tradeStore } from "$lib/stores/trades.svelte";
+	import { tradeStore, type TradeCalendarRow } from "$lib/stores/trades.svelte";
 	import { accountStore } from "$lib/stores/accounts.svelte";
 	import PnlShareDialog from "$lib/components/pnl-share-sheet/pnl-share-dialog.svelte";
 
@@ -21,6 +21,7 @@
 	let viewYear = $state(today.getFullYear());
 	let viewMonth = $state(today.getMonth());
 	let shareOpen = $state(false);
+	let calendarRows = $state<TradeCalendarRow[]>([]);
 
 	function prevMonth() {
 		if (viewMonth === 0) { viewMonth = 11; viewYear--; }
@@ -42,11 +43,27 @@
 
 	const pnlByDay = $derived.by(() => {
 		const map = new Map<string, number>();
-		for (const t of tradeStore.trades) {
-			if (t.status !== "closed" || !t.closed_at) continue;
+		for (const t of calendarRows) {
+			if (!t.closed_at) continue;
 			const key = toLocalDateKey(t.closed_at);
 			const pnl = typeof t.pnl === "number" ? t.pnl : Number(t.pnl ?? 0);
 			map.set(key, (map.get(key) ?? 0) + pnl);
+		}
+		return map;
+	});
+
+	/**
+	 * Number of trades per day. A trade is one complete round-trip position
+	 * (flat → open → flat), which is exactly one `trades` row — scale-in and
+	 * scale-out fills within a position never increase the count. Bucketed by
+	 * `closed_at` so the count and P&L in a cell always cover the same trades.
+	 */
+	const countByDay = $derived.by(() => {
+		const map = new Map<string, number>();
+		for (const t of calendarRows) {
+			if (!t.closed_at) continue;
+			const key = toLocalDateKey(t.closed_at);
+			map.set(key, (map.get(key) ?? 0) + 1);
 		}
 		return map;
 	});
@@ -139,8 +156,14 @@
 
 	$effect(() => {
 		if (!session?.user?.id) return;
-		void accountStore.activeAccountId;
-		void tradeStore.getTradesByAccount(supabase);
+		const accountId = accountStore.activeAccountId;
+		if (!accountId) {
+			calendarRows = [];
+			return;
+		}
+		void tradeStore.getCalendarSummary(supabase, accountId).then((rows) => {
+			calendarRows = rows;
+		});
 	});
 </script>
 
@@ -207,7 +230,7 @@
 			<div class="rounded-md border bg-background p-4">
 				<div class="text-xs text-muted-foreground">Worst day</div>
 				<div class="mt-1 text-2xl font-semibold tabular-nums text-rose-700 dark:text-rose-400">
-					{formatUsd(monthStats.worst)}
+					{formatUsd(monthStats.worst ?? 0)}
 				</div>
 			</div>
 		</div>
@@ -233,6 +256,7 @@
 			<div class="grid grid-cols-7">
 				{#each calendarDays as { date, key, inMonth }, i}
 					{@const pnl = pnlByDay.get(key)}
+					{@const count = countByDay.get(key) ?? 0}
 					{@const hasTrades = pnl !== undefined}
 					{@const isProfit = hasTrades && pnl! > 0}
 					{@const isLoss = hasTrades && pnl! < 0}
@@ -258,13 +282,18 @@
 							{date.getDate()}
 						</div>
 						{#if hasTrades && inMonth}
-							<div class={[
-								"mt-auto text-xs font-semibold tabular-nums",
-								isProfit && "text-emerald-700 dark:text-emerald-400",
-								isLoss && "text-rose-700 dark:text-rose-400",
-								isBreakeven && "text-muted-foreground",
-							]}>
-								{formatUsd(pnl!)}
+							<div class="mt-auto flex flex-col gap-0.5">
+								<div class={[
+									"text-xs font-semibold tabular-nums",
+									isProfit && "text-emerald-700 dark:text-emerald-400",
+									isLoss && "text-rose-700 dark:text-rose-400",
+									isBreakeven && "text-muted-foreground",
+								]}>
+									{formatUsd(pnl!)}
+								</div>
+								<div class="text-[10px] text-muted-foreground tabular-nums">
+									{count} {count === 1 ? "trade" : "trades"}
+								</div>
 							</div>
 						{/if}
 					</div>
