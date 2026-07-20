@@ -50,6 +50,10 @@
 						url: "/trades",
 					},
 					{
+						title: "Journal",
+						url: "/journal",
+					},
+					{
 						title: "Analytics",
 						url: "/analytics",
 					},
