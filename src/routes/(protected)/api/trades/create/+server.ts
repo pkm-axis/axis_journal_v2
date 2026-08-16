@@ -43,6 +43,17 @@ export async function POST({ request, locals: { supabase, safeGetSession } }) {
         return json({ success: false, message: "Trade must belong to exactly one of account or backtest session." }, { status: 400 });
     }
 
+    /**
+     * A trade has exactly one strategy (trades.strategy_id) since
+     * 20260725000000_strategy_checklists dropped trading.trade_strategies. The
+     * client still sends an array, so take the first valid id.
+     */
+    const strategyId = Array.isArray(strategy_ids)
+        ? (strategy_ids.find(
+              (sid: unknown): sid is string => typeof sid === "string" && sid.length > 0
+          ) ?? null)
+        : null;
+
     const { data, error } = await supabase
         .schema('trading')
         .from('trades')
@@ -66,7 +77,8 @@ export async function POST({ request, locals: { supabase, safeGetSession } }) {
                 highest_unrealized_profit: highest_unrealized_profit ?? null,
                 opened_at,
                 closed_at,
-                notes
+                notes,
+                strategy_id: strategyId
             }
         ])
         .select()
@@ -101,19 +113,6 @@ export async function POST({ request, locals: { supabase, safeGetSession } }) {
                 exit_reason: exit_reason ?? null
             });
         if (psychErr) console.log("Psychology insert error:", psychErr);
-    }
-
-    if (Array.isArray(strategy_ids) && strategy_ids.length > 0) {
-        const rows = strategy_ids
-            .filter((sid: unknown): sid is string => typeof sid === "string" && sid.length > 0)
-            .map((strategy_id: string) => ({ trade_id: data.id, strategy_id }));
-        if (rows.length > 0) {
-            const { error: linkErr } = await supabase
-                .schema("trading")
-                .from("trade_strategies")
-                .insert(rows);
-            if (linkErr) console.log("Strategy link error:", linkErr);
-        }
     }
 
     if (status === "closed" && Array.isArray(mistake_ids) && mistake_ids.length > 0) {

@@ -137,6 +137,7 @@ export type TradeExecutionInput = {
 export type TradeCalendarRow = {
     closed_at: string | null;
     pnl: string | number | null;
+    account_id: string | null;
 };
 
 export type TradeFilters = {
@@ -266,14 +267,21 @@ function createTradeStore() {
                 throw e;
             }
         },
+        /**
+         * Closed trades for the P&L Calendar. Omit `accountId` (the default) to
+         * span every account the user owns; pass one to scope to that account.
+         */
         getCalendarSummary: async (
             supabase: SupabaseClient,
-            accountId: string
+            accountId?: string | null
         ): Promise<TradeCalendarRow[]> => {
             try {
                 const token = await getAuthToken(supabase);
+                const params = new URLSearchParams();
+                if (accountId) params.set("accountId", accountId);
+                const suffix = params.size > 0 ? `?${params.toString()}` : "";
                 const response = await fetch(
-                    `/api/trades/calendar-summary?accountId=${encodeURIComponent(accountId)}`,
+                    `/api/trades/calendar-summary${suffix}`,
                     {
                         credentials: "include",
                         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },

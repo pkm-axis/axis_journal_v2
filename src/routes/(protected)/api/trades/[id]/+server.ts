@@ -80,39 +80,24 @@ export const PATCH: RequestHandler = async ({ params, request, locals: { supabas
 		if (psychErr) console.log("Psychology upsert error:", psychErr);
 	}
 
+	/**
+	 * One strategy per trade, held on trades.strategy_id — the link-table diff
+	 * this replaces targeted trading.trade_strategies, dropped by
+	 * 20260725000000_strategy_checklists. An empty array clears the strategy.
+	 */
 	if (Array.isArray(body.strategy_ids)) {
-		const desired = new Set(
-			(body.strategy_ids as unknown[]).filter(
+		const strategyId =
+			(body.strategy_ids as unknown[]).find(
 				(sid): sid is string => typeof sid === "string" && sid.length > 0
-			)
-		);
+			) ?? null;
 
-		const { data: existing } = await supabase
+		const { error: stratErr } = await supabase
 			.schema("trading")
-			.from("trade_strategies")
-			.select("strategy_id")
-			.eq("trade_id", id);
-
-		const current = new Set(
-			(existing ?? []).map((r: { strategy_id: string }) => r.strategy_id)
-		);
-		const toAdd = [...desired].filter((s) => !current.has(s));
-		const toRemove = [...current].filter((s): s is string => !desired.has(s as string));
-
-		if (toRemove.length > 0) {
-			await supabase
-				.schema("trading")
-				.from("trade_strategies")
-				.delete()
-				.eq("trade_id", id)
-				.in("strategy_id", toRemove);
-		}
-		if (toAdd.length > 0) {
-			await supabase
-				.schema("trading")
-				.from("trade_strategies")
-				.insert(toAdd.map((strategy_id) => ({ trade_id: id, strategy_id })));
-		}
+			.from("trades")
+			.update({ strategy_id: strategyId })
+			.eq("id", id)
+			.eq("user_id", user.id);
+		if (stratErr) console.log("Strategy update error:", stratErr);
 	}
 
 	if (Array.isArray(body.mistake_ids)) {

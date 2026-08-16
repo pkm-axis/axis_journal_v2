@@ -25,6 +25,29 @@
 		year: number;
 		stats: MonthStats;
 		dayBars: DayBar[];
+		/**
+		 * Which accounts the numbers cover — an account name, or "3 accounts"
+		 * when combined. Only rendered on the card, never in the calendar grid.
+		 */
+		accountLabel?: string | null;
+	};
+
+	type DayStats = {
+		total: number;
+		trades: number;
+		winRate: number | null;
+		best: number | null;
+		worst: number | null;
+	};
+
+	type DayProps = {
+		variant: "day";
+		/** Local calendar day as `yyyy-mm-dd`. */
+		date: string;
+		stats: DayStats;
+		/** One bar per closed trade that day, in chronological order. */
+		tradeBars: DayBar[];
+		accountLabel?: string | null;
 	};
 
 	type TradeProps = {
@@ -71,7 +94,7 @@
 		footnote?: string | null;
 	};
 
-	type Props = { open: boolean } & (MonthProps | TradeProps | SessionProps | AnalyticsProps);
+	type Props = { open: boolean } & (MonthProps | DayProps | TradeProps | SessionProps | AnalyticsProps);
 
 	let { open = $bindable(false), ...data }: Props = $props();
 
@@ -84,6 +107,7 @@
 
 	const filename = $derived.by(() => {
 		if (data.variant === "month") return `pnl-${MONTHS[data.month].toLowerCase()}-${data.year}.png`;
+		if (data.variant === "day") return `pnl-${data.date}.png`;
 		if (data.variant === "trade") return `trade-${data.symbol}.png`;
 		if (data.variant === "analytics") return `analytics-${slug(data.title)}.png`;
 		return `backtest-${slug(data.name)}.png`;
@@ -91,12 +115,14 @@
 
 	const title = $derived.by(() => {
 		if (data.variant === "month") return "Share P&L Card";
+		if (data.variant === "day") return "Share Daily P&L";
 		if (data.variant === "trade") return "Share Trade";
 		if (data.variant === "analytics") return "Share Analytics";
 		return "Share Backtest";
 	});
 	const description = $derived.by(() => {
 		if (data.variant === "month") return "Download your monthly summary as an image to share anywhere.";
+		if (data.variant === "day") return "Download this day's summary as an image to share anywhere.";
 		if (data.variant === "trade") return "Download this trade as an image to share anywhere.";
 		if (data.variant === "analytics") return "Download this analytics snapshot as an image to share anywhere.";
 		return "Download this backtest session as an image to share anywhere.";
@@ -160,6 +186,19 @@
 		return new Intl.DateTimeFormat(undefined, {
 			month: "short", day: "numeric", year: "numeric",
 		}).format(d);
+	}
+
+	/**
+	 * Formats a local `yyyy-mm-dd` key. Built from the parts rather than
+	 * `new Date(key)`, which would parse it as UTC midnight and render the
+	 * previous day for anyone west of Greenwich.
+	 */
+	function fmtDayKey(key: string) {
+		const [y, m, d] = key.split("-").map(Number);
+		if (!y || !m || !d) return key;
+		return new Intl.DateTimeFormat(undefined, {
+			weekday: "long", month: "short", day: "numeric", year: "numeric",
+		}).format(new Date(y, m - 1, d));
 	}
 
 	const pnlColor = (pnl: number | null) =>
@@ -251,10 +290,15 @@
 						<span style="color:#e2e8f0; font-size:13px; font-weight:700; letter-spacing:0.15em;">AXIS</span>
 					</div>
 
-					{#if data.variant === "month"}
-						<span style="color:#64748b; font-size:11px; font-weight:500;">
-							{MONTHS[data.month]} {data.year}
-						</span>
+					{#if data.variant === "month" || data.variant === "day"}
+						<div style="display:flex; flex-direction:column; align-items:flex-end; gap:2px;">
+							<span style="color:#64748b; font-size:11px; font-weight:500;">
+								{data.variant === "month" ? `${MONTHS[data.month]} ${data.year}` : fmtDayKey(data.date)}
+							</span>
+							{#if data.accountLabel}
+								<span style="color:#475569; font-size:10px; font-weight:500;">{data.accountLabel}</span>
+							{/if}
+						</div>
 					{:else if data.variant === "trade"}
 						<div style="display:flex; align-items:center; gap:6px;">
 							<span style={`display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:600; background:${data.side === 'long' ? '#4ade8022' : '#f8717122'}; color:${data.side === 'long' ? '#4ade80' : '#f87171'};`}>
@@ -314,6 +358,40 @@
 						</div>
 						<div>
 							<div style="color:#64748b; font-size:10px; font-weight:500; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:2px;">Best day</div>
+							<div style="color:#4ade80; font-size:16px; font-weight:600;">{fmt(data.stats.best)}</div>
+						</div>
+					</div>
+
+				{:else if data.variant === "day"}
+					<!-- Day: big P&L + one bar per trade + day stats -->
+					<div style="color:#94a3b8; font-size:11px; font-weight:500; letter-spacing:0.05em; text-transform:uppercase; margin-bottom:4px;">Net P&L</div>
+					<div style={`font-size:2.5rem; font-weight:700; letter-spacing:-0.02em; line-height:1; margin-bottom:20px; color:${pnlColor(data.stats.total)};`}>
+						{data.stats.trades === 0 ? "—" : fmt(data.stats.total)}
+					</div>
+
+					{#if data.tradeBars.length > 0}
+						<div style="display:flex; align-items:flex-end; gap:2px; height:40px; margin-bottom:20px;">
+							{#each data.tradeBars as bar}
+								<div
+									style={`flex:1; border-radius:2px; height:${Math.max(4, bar.pct * 40)}px; background:${bar.pnl > 0 ? '#4ade8055' : '#f8717155'}; border-top:2px solid ${bar.pnl > 0 ? '#4ade80' : '#f87171'};`}
+								></div>
+							{/each}
+						</div>
+					{/if}
+
+					<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px;">
+						<div>
+							<div style="color:#64748b; font-size:10px; font-weight:500; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:2px;">Trades</div>
+							<div style="color:#e2e8f0; font-size:16px; font-weight:600;">{data.stats.trades || "—"}</div>
+						</div>
+						<div>
+							<div style="color:#64748b; font-size:10px; font-weight:500; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:2px;">Win rate</div>
+							<div style="color:#e2e8f0; font-size:16px; font-weight:600;">
+								{data.stats.winRate == null ? "—" : `${Math.round(data.stats.winRate * 100)}%`}
+							</div>
+						</div>
+						<div>
+							<div style="color:#64748b; font-size:10px; font-weight:500; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:2px;">Best trade</div>
 							<div style="color:#4ade80; font-size:16px; font-weight:600;">{fmt(data.stats.best)}</div>
 						</div>
 					</div>
@@ -444,6 +522,10 @@
 			{#if data.variant === "month"}
 				<p class="text-xs text-muted-foreground">
 					Only closed trades for {MONTHS[data.month]} {data.year} are included.
+				</p>
+			{:else if data.variant === "day"}
+				<p class="text-xs text-muted-foreground">
+					Bars show P&L of each trade closed on {fmtDayKey(data.date)}, in chronological order.
 				</p>
 			{:else if data.variant === "session"}
 				<p class="text-xs text-muted-foreground">

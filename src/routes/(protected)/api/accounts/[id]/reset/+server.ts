@@ -29,7 +29,7 @@ export const POST: RequestHandler = async ({ params, locals: { supabase, safeGet
 
 	if (payoutsError) return json({ success: false, message: payoutsError.message }, { status: 400 });
 
-	// Delete trades for this account (cascade handles trade_strategies, trade_mistakes)
+	// Delete trades for this account (cascade handles trade_mistakes, executions, psychology)
 	const { error: tradesError } = await supabase
 		.schema("trading")
 		.from("trades")

@@ -2,6 +2,7 @@
 	import { onMount } from "svelte";
 	import HeaderNavbar from "$lib/components/layout/header-navbar.svelte";
 	import * as Breadcrumb from "$lib/components/ui/breadcrumb/index.js";
+	import * as Select from "$lib/components/ui/select/index.js";
 	import { ScrollArea } from "$lib/components/ui/scroll-area";
 	import { Button } from "$lib/components/ui/button";
 	import { CaretLeftIcon, CaretRightIcon, ShareNetworkIcon } from "phosphor-svelte";
@@ -16,12 +17,24 @@
 		"July", "August", "September", "October", "November", "December"
 	];
 
+	/** Sentinel for the account filter's combined-book option. */
+	const ALL_ACCOUNTS = "all";
+
 	let session = $state<{ user: { id: string } } | null>(null);
 	let today = new Date();
 	let viewYear = $state(today.getFullYear());
 	let viewMonth = $state(today.getMonth());
 	let shareOpen = $state(false);
 	let calendarRows = $state<TradeCalendarRow[]>([]);
+	let selectedAccountId = $state<string>(ALL_ACCOUNTS);
+	/** Day the share card is showing, as a `yyyy-mm-dd` key. */
+	let shareDayKey = $state<string | null>(null);
+	let dayShareOpen = $state(false);
+
+	function openDayShare(key: string) {
+		shareDayKey = key;
+		dayShareOpen = true;
+	}
 
 	function prevMonth() {
 		if (viewMonth === 0) { viewMonth = 11; viewYear--; }
@@ -41,32 +54,76 @@
 		return `${y}-${m}-${day}`;
 	}
 
-	const pnlByDay = $derived.by(() => {
-		const map = new Map<string, number>();
-		for (const t of calendarRows) {
-			if (!t.closed_at) continue;
-			const key = toLocalDateKey(t.closed_at);
-			const pnl = typeof t.pnl === "number" ? t.pnl : Number(t.pnl ?? 0);
-			map.set(key, (map.get(key) ?? 0) + pnl);
+	/** Rows narrowed to the account filter. Empty filter = the combined book. */
+	const visibleRows = $derived(
+		selectedAccountId === ALL_ACCOUNTS
+			? calendarRows
+			: calendarRows.filter((r) => r.account_id === selectedAccountId)
+	);
+
+	/**
+	 * Per-day buckets, keyed by local `closed_at` day. Each bucket keeps every
+	 * trade's P&L in chronological order — a trade is one complete round-trip
+	 * position (flat → open → flat), which is exactly one `trades` row, so
+	 * scale-in and scale-out fills within a position never add entries. The day
+	 * share card reads `pnls` directly; the grid only needs the sum and length.
+	 */
+	const dayIndex = $derived.by(() => {
+		const rows = visibleRows
+			.filter((r) => r.closed_at)
+			.slice()
+			.sort((a, b) => a.closed_at!.localeCompare(b.closed_at!));
+
+		const map = new Map<string, { pnls: number[]; accounts: Set<string> }>();
+		for (const t of rows) {
+			const key = toLocalDateKey(t.closed_at!);
+			let bucket = map.get(key);
+			if (!bucket) {
+				bucket = { pnls: [], accounts: new Set() };
+				map.set(key, bucket);
+			}
+			bucket.pnls.push(typeof t.pnl === "number" ? t.pnl : Number(t.pnl ?? 0));
+			if (t.account_id) bucket.accounts.add(t.account_id);
 		}
 		return map;
 	});
 
-	/**
-	 * Number of trades per day. A trade is one complete round-trip position
-	 * (flat → open → flat), which is exactly one `trades` row — scale-in and
-	 * scale-out fills within a position never increase the count. Bucketed by
-	 * `closed_at` so the count and P&L in a cell always cover the same trades.
-	 */
-	const countByDay = $derived.by(() => {
+	const pnlByDay = $derived.by(() => {
 		const map = new Map<string, number>();
-		for (const t of calendarRows) {
-			if (!t.closed_at) continue;
-			const key = toLocalDateKey(t.closed_at);
-			map.set(key, (map.get(key) ?? 0) + 1);
+		for (const [key, bucket] of dayIndex) {
+			map.set(key, bucket.pnls.reduce((sum, p) => sum + p, 0));
 		}
 		return map;
 	});
+
+	const countByDay = $derived.by(() => {
+		const map = new Map<string, number>();
+		for (const [key, bucket] of dayIndex) map.set(key, bucket.pnls.length);
+		return map;
+	});
+
+	function accountName(id: string): string | undefined {
+		return accountStore.accounts.find((a) => a.id === id)?.name;
+	}
+
+	/**
+	 * The scope line printed on a share card: the account name when a single
+	 * account produced the numbers, otherwise a count like "3 accounts". This
+	 * lives on the card only — the calendar grid never shows it.
+	 */
+	function accountLabelFor(accounts: Set<string>): string | null {
+		if (selectedAccountId !== ALL_ACCOUNTS) return accountName(selectedAccountId) ?? null;
+		if (accounts.size === 0) return null;
+		if (accounts.size === 1) return accountName([...accounts][0]) ?? "1 account";
+		return `${accounts.size} accounts`;
+	}
+
+	/** Bars for the day share card — one per trade closed that day. */
+	function toBars(pnls: number[]) {
+		if (pnls.length === 0) return [];
+		const max = Math.max(...pnls.map((p) => Math.abs(p)));
+		return pnls.map((pnl) => ({ pnl, pct: max > 0 ? Math.abs(pnl) / max : 0 }));
+	}
 
 	const calendarDays = $derived.by(() => {
 		const firstDay = new Date(viewYear, viewMonth, 1);
@@ -132,6 +189,40 @@
 		return entries;
 	});
 
+	/** Accounts that actually traded in the viewed month, for the share card. */
+	const monthAccountLabel = $derived.by(() => {
+		const prefix = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}`;
+		const accounts = new Set<string>();
+		for (const [key, bucket] of dayIndex) {
+			if (!key.startsWith(prefix)) continue;
+			for (const id of bucket.accounts) accounts.add(id);
+		}
+		return accountLabelFor(accounts);
+	});
+
+	const dayShare = $derived.by(() => {
+		if (!shareDayKey) return null;
+		const bucket = dayIndex.get(shareDayKey);
+		if (!bucket) return null;
+
+		const { pnls } = bucket;
+		const wins = pnls.filter((p) => p > 0).length;
+		const decided = pnls.filter((p) => p !== 0).length;
+
+		return {
+			date: shareDayKey,
+			accountLabel: accountLabelFor(bucket.accounts),
+			tradeBars: toBars(pnls),
+			stats: {
+				total: pnls.reduce((sum, p) => sum + p, 0),
+				trades: pnls.length,
+				winRate: decided > 0 ? wins / decided : null,
+				best: pnls.length > 0 ? Math.max(...pnls) : null,
+				worst: pnls.length > 0 ? Math.min(...pnls) : null,
+			},
+		};
+	});
+
 	function formatUsd(v: number | null, sign = true) {
 		if (v == null) return "—";
 		return new Intl.NumberFormat(undefined, {
@@ -149,19 +240,22 @@
 		);
 	}
 
+	const selectedAccountLabel = $derived(
+		selectedAccountId === ALL_ACCOUNTS
+			? "All accounts"
+			: accountName(selectedAccountId) ?? "All accounts"
+	);
+
 	onMount(async () => {
 		const { data: { session: s } } = await supabase.auth.getSession();
 		session = s;
 	});
 
+	// Spans every account — the calendar is a whole-book view, so it deliberately
+	// ignores the active account selection.
 	$effect(() => {
 		if (!session?.user?.id) return;
-		const accountId = accountStore.activeAccountId;
-		if (!accountId) {
-			calendarRows = [];
-			return;
-		}
-		void tradeStore.getCalendarSummary(supabase, accountId).then((rows) => {
+		void tradeStore.getCalendarSummary(supabase).then((rows) => {
 			calendarRows = rows;
 		});
 	});
@@ -177,32 +271,94 @@
 	</Breadcrumb.Root>
 </HeaderNavbar>
 
+{#snippet dayBody(
+	date: Date,
+	pnl: number | undefined,
+	count: number,
+	inMonth: boolean,
+	hasTrades: boolean,
+	isProfit: boolean,
+	isLoss: boolean,
+	isBreakeven: boolean
+)}
+	<div class={[
+		"text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full",
+		!inMonth && "text-muted-foreground/40",
+		inMonth && !hasTrades && "text-muted-foreground",
+		isToday(date) && "bg-primary text-primary-foreground",
+		!isToday(date) && isProfit && "text-emerald-700 dark:text-emerald-400",
+		!isToday(date) && isLoss && "text-rose-700 dark:text-rose-400",
+		!isToday(date) && isBreakeven && "text-muted-foreground",
+	]}>
+		{date.getDate()}
+	</div>
+	{#if hasTrades && inMonth}
+		<div class="mt-auto flex flex-col gap-0.5">
+			<div class={[
+				"text-xs font-semibold tabular-nums",
+				isProfit && "text-emerald-700 dark:text-emerald-400",
+				isLoss && "text-rose-700 dark:text-rose-400",
+				isBreakeven && "text-muted-foreground",
+			]}>
+				{formatUsd(pnl!)}
+			</div>
+			<div class="text-[10px] text-muted-foreground tabular-nums">
+				{count} {count === 1 ? "trade" : "trades"}
+			</div>
+		</div>
+	{/if}
+{/snippet}
+
 {#snippet helpContent()}
 	<div class="space-y-3 text-sm">
 		<p class="text-muted-foreground">The P&L Calendar shows your daily profit and loss laid out in a calendar grid so you can spot patterns across the week or month.</p>
 		<ul class="list-disc list-inside space-y-1 text-muted-foreground">
+			<li>Every day combines all of your accounts by default. Use the account filter to narrow it to one.</li>
 			<li>Green days are profitable, red days are losing days.</li>
 			<li>Navigate between months using the arrow buttons at the top of the calendar.</li>
-			<li>Use the share button to export a shareable image of your calendar.</li>
+			<li>Use the share button to export the whole month as an image, or click any day with trades to share just that day.</li>
 		</ul>
 	</div>
 {/snippet}
 
 <ScrollArea class="h-[calc(100vh-3.5rem)]">
 	<div class="container mx-auto max-w-5xl space-y-4 p-4 md:p-6">
-		<div class="flex items-center justify-between">
+		<div class="flex flex-wrap items-start justify-between gap-3">
 			<div>
 				<h1 class="text-2xl font-bold tracking-tight">P&L Calendar</h1>
-				<p class="text-sm text-muted-foreground">Daily profit and loss from closed trades.</p>
+				<p class="text-sm text-muted-foreground">Daily profit and loss from closed trades across all accounts.</p>
 			</div>
-			<Button
-				variant="outline"
-				class="cursor-pointer rounded-md"
-				onclick={() => (shareOpen = true)}
-			>
-				<ShareNetworkIcon size={16} />
-				Share
-			</Button>
+			<div class="flex items-center gap-2">
+				<Select.Root type="single" bind:value={selectedAccountId}>
+					<Select.Trigger class="w-[190px] rounded-md cursor-pointer" aria-label="Filter by account">
+						<span class="truncate">{selectedAccountLabel}</span>
+					</Select.Trigger>
+					<Select.Content class="rounded-md">
+						<Select.Item value={ALL_ACCOUNTS} class="cursor-pointer">
+							<div class="flex flex-col">
+								<span>All accounts</span>
+								<span class="text-[10px] text-muted-foreground">Combined book</span>
+							</div>
+						</Select.Item>
+						{#each accountStore.accounts as a (a.id)}
+							<Select.Item value={a.id} class="cursor-pointer">
+								<div class="flex flex-col">
+									<span>{a.name}</span>
+									<span class="text-[10px] text-muted-foreground capitalize">{a.account_type ?? ""}</span>
+								</div>
+							</Select.Item>
+						{/each}
+					</Select.Content>
+				</Select.Root>
+				<Button
+					variant="outline"
+					class="cursor-pointer rounded-md"
+					onclick={() => (shareOpen = true)}
+				>
+					<ShareNetworkIcon size={16} />
+					Share
+				</Button>
+			</div>
 		</div>
 
 		<!-- Month stats -->
@@ -262,41 +418,32 @@
 					{@const isLoss = hasTrades && pnl! < 0}
 					{@const isBreakeven = hasTrades && pnl === 0}
 					{@const lastInRow = (i + 1) % 7 === 0}
-					<div class={[
-						"min-h-[80px] p-2 flex flex-col",
+					{@const shareable = hasTrades && inMonth}
+					{@const cellClass = [
+						"min-h-[80px] p-2 flex flex-col text-left",
 						!lastInRow && "border-r",
 						i < calendarDays.length - 7 && "border-b",
 						!inMonth && "bg-muted/20",
 						isProfit && "bg-emerald-700/5",
 						isLoss && "bg-rose-700/5",
-					]}>
-						<div class={[
-							"text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full",
-							!inMonth && "text-muted-foreground/40",
-							inMonth && !hasTrades && "text-muted-foreground",
-							isToday(date) && "bg-primary text-primary-foreground",
-							!isToday(date) && isProfit && "text-emerald-700 dark:text-emerald-400",
-							!isToday(date) && isLoss && "text-rose-700 dark:text-rose-400",
-							!isToday(date) && isBreakeven && "text-muted-foreground",
-						]}>
-							{date.getDate()}
+					]}
+					{#if shareable}
+						<button
+							type="button"
+							class={[...cellClass, "group relative cursor-pointer transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"]}
+							onclick={() => openDayShare(key)}
+							aria-label={`Share P&L for ${key}`}
+						>
+							<span class="absolute right-1.5 top-1.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+								<ShareNetworkIcon size={12} />
+							</span>
+							{@render dayBody(date, pnl, count, inMonth, hasTrades, isProfit, isLoss, isBreakeven)}
+						</button>
+					{:else}
+						<div class={cellClass}>
+							{@render dayBody(date, pnl, count, inMonth, hasTrades, isProfit, isLoss, isBreakeven)}
 						</div>
-						{#if hasTrades && inMonth}
-							<div class="mt-auto flex flex-col gap-0.5">
-								<div class={[
-									"text-xs font-semibold tabular-nums",
-									isProfit && "text-emerald-700 dark:text-emerald-400",
-									isLoss && "text-rose-700 dark:text-rose-400",
-									isBreakeven && "text-muted-foreground",
-								]}>
-									{formatUsd(pnl!)}
-								</div>
-								<div class="text-[10px] text-muted-foreground tabular-nums">
-									{count} {count === 1 ? "trade" : "trades"}
-								</div>
-							</div>
-						{/if}
-					</div>
+					{/if}
 				{/each}
 			</div>
 		</div>
@@ -310,4 +457,16 @@
 	year={viewYear}
 	stats={monthStats}
 	dayBars={dayBars}
+	accountLabel={monthAccountLabel}
 />
+
+{#if dayShare}
+	<PnlShareDialog
+		variant="day"
+		bind:open={dayShareOpen}
+		date={dayShare.date}
+		stats={dayShare.stats}
+		tradeBars={dayShare.tradeBars}
+		accountLabel={dayShare.accountLabel}
+	/>
+{/if}

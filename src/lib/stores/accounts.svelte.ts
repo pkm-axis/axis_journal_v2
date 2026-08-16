@@ -68,7 +68,12 @@ function createAccountStore() {
 
                 if(!result.success) {
                     // TODO: Toast
-                    throw new Error(result.error.message || "Failed to get accounts");
+                    // `error` is a bare string on 401 and absent on 400 (which
+                    // uses `message`), so reaching for `error.message` threw a
+                    // TypeError and buried the real reason the list came back empty.
+                    const reason =
+                        typeof result.error === "string" ? result.error : result.error?.message;
+                    throw new Error(reason || result.message || "Failed to get accounts");
                 }
 
                 accounts = result.data;

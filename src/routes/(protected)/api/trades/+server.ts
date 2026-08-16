@@ -25,7 +25,7 @@ export async function GET({ url, locals: { supabase, safeGetSession } }) {
     let query = supabase
         .schema("trading")
         .from("trades")
-        .select("*, trade_strategies(strategy_id), trade_mistakes(mistake_id), trade_checklist_responses(item_id), trade_psychology(emotional_states, confidence, mental_state, followed_plan, entry_reason, exit_reason)", { count: "exact" })
+        .select("*, trade_mistakes(mistake_id), trade_checklist_responses(item_id), trade_psychology(emotional_states, confidence, mental_state, followed_plan, entry_reason, exit_reason)", { count: "exact" })
         .eq("user_id", user.id)
         .order("opened_at", { ascending: false });
 
@@ -47,7 +47,10 @@ export async function GET({ url, locals: { supabase, safeGetSession } }) {
     }
 
     const flattened = (data ?? []).map((t: Record<string, unknown>) => {
-        const sLinks = (t.trade_strategies as { strategy_id: string }[] | null) ?? [];
+        // A trade carries exactly one strategy since 20260725000000_strategy_checklists
+        // moved it onto trades.strategy_id and dropped trading.trade_strategies. The
+        // client still speaks `strategy_ids`, so normalize to a 0-or-1 element array.
+        const strategyId = (t.strategy_id as string | null) ?? null;
         const mLinks = (t.trade_mistakes  as { mistake_id:  string }[] | null) ?? [];
         const cLinks = (t.trade_checklist_responses as { item_id: string }[] | null) ?? [];
         const psych = (t.trade_psychology as {
@@ -58,10 +61,10 @@ export async function GET({ url, locals: { supabase, safeGetSession } }) {
             entry_reason: string | null;
             exit_reason: string | null;
         } | null) ?? null;
-        const { trade_strategies, trade_mistakes, trade_checklist_responses, trade_psychology, ...rest } = t;
+        const { trade_mistakes, trade_checklist_responses, trade_psychology, ...rest } = t;
         return {
             ...rest,
-            strategy_ids: sLinks.map((l) => l.strategy_id),
+            strategy_ids: strategyId ? [strategyId] : [],
             mistake_ids:  mLinks.map((l) => l.mistake_id),
             checklist_item_ids: cLinks.map((l) => l.item_id),
             emotional_states: psych?.emotional_states ?? [],

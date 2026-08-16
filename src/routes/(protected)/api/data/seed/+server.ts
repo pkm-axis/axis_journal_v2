@@ -334,6 +334,9 @@ async function seedTrades(supabase: SupabaseClient, uid: string) {
 			opened_at: dAgo(s.daysAgo, 9, 30),
 			closed_at: s.status === "closed" ? dAgo(s.daysAgo, 10, 45) : null,
 			notes: s.notes ?? null,
+			// One strategy per trade, on the row itself — trade_strategies was
+			// dropped by 20260725000000_strategy_checklists.
+			strategy_id: (s.strategy && strategyMap[s.strategy]) || null,
 		};
 	});
 
@@ -344,7 +347,6 @@ async function seedTrades(supabase: SupabaseClient, uid: string) {
 		.select("id");
 	if (tErr) throw new Error("Trades: " + tErr.message);
 
-	const strategyLinks: { trade_id: string; strategy_id: string }[] = [];
 	const mistakeLinks: { trade_id: string; mistake_id: string }[] = [];
 	const psychRows: {
 		trade_id: string;
@@ -357,9 +359,6 @@ async function seedTrades(supabase: SupabaseClient, uid: string) {
 	seeds.forEach((s, i) => {
 		const tradeId = insertedTrades?.[i]?.id;
 		if (!tradeId) return;
-		if (s.strategy && strategyMap[s.strategy]) {
-			strategyLinks.push({ trade_id: tradeId, strategy_id: strategyMap[s.strategy] });
-		}
 		if (s.mistake && mistakeMap[s.mistake] && s.status === "closed") {
 			mistakeLinks.push({ trade_id: tradeId, mistake_id: mistakeMap[s.mistake] });
 		}
@@ -396,10 +395,6 @@ async function seedTrades(supabase: SupabaseClient, uid: string) {
 		});
 	});
 
-	if (strategyLinks.length > 0) {
-		const { error } = await supabase.schema("trading").from("trade_strategies").insert(strategyLinks);
-		if (error) console.error("Strategy links:", error.message);
-	}
 	if (mistakeLinks.length > 0) {
 		const { error } = await supabase.schema("trading").from("trade_mistakes").insert(mistakeLinks);
 		if (error) console.error("Mistake links:", error.message);
