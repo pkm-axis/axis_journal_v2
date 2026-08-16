@@ -119,6 +119,50 @@
 	let formScreenshotPreview = $state<string | null>(null);
 	let formExistingScreenshotUrl = $state<string | null>(null);
 
+	/**
+	 * Copytrading: other accounts this same decision was executed on. Each becomes
+	 * its own trade row sharing a trade_group_id, so cross-account stats can count
+	 * the decision once. Keyed by account id; the value is that account's size,
+	 * blank meaning "same as the primary".
+	 */
+	let formMirrorAccountIds = $state<string[]>([]);
+	let formMirrorQuantities = $state<Record<string, string>>({});
+
+	/** Accounts eligible to mirror to: every other live account. */
+	const mirrorCandidates = $derived(
+		backtestSessionId
+			? []
+			: accountStore.accounts.filter((a) => a.id !== accountStore.activeAccountId)
+	);
+
+	/**
+	 * Build the per-account overrides for a mirrored trade. Everything that scales
+	 * with position size — P&L, commission, the intraday peak — is scaled by the
+	 * mirror's size relative to the primary's, which is right for a straight copy
+	 * at a different contract count. Fills that diverged from a clean multiple
+	 * need the individual rows edited afterwards.
+	 */
+	function mirrorPayload(primaryQty: number, primaryPnl: number) {
+		if (formMirrorAccountIds.length === 0) return undefined;
+		return formMirrorAccountIds.map((account_id) => {
+			const qty = num(formMirrorQuantities[account_id] ?? "") ?? primaryQty;
+			const ratio = primaryQty > 0 ? qty / primaryQty : 1;
+			// The peak only means anything on an intraday-trailing account, and the
+			// mirror's drawdown type is its own — don't inherit the primary's.
+			const acct = accountStore.accounts.find((a) => a.id === account_id);
+			const mirrorIsIntraday =
+				acct?.account_type === "prop firm" && acct?.prop_firm_drawdown_type === "intraday";
+			const peak = num(formHighestUnrealized);
+			return {
+				account_id,
+				quantity: qty,
+				pnl: primaryPnl * ratio,
+				commission: commissionBreakdown.total * ratio,
+				highest_unrealized_profit: mirrorIsIntraday && peak != null ? peak * ratio : null
+			};
+		});
+	}
+
 	function resetNewTradeForm() {
 		formSymbol = "";
 		formSide = "long";
@@ -154,6 +198,8 @@
 		formFollowedPlan = null;
 		formEntryReason = "";
 		formExitReason = "";
+		formMirrorAccountIds = [];
+		formMirrorQuantities = {};
 		tradeStep = 1;
 	}
 
@@ -195,6 +241,9 @@
 		formFollowedPlan = t.followed_plan ?? null;
 		formEntryReason = t.entry_reason ?? "";
 		formExitReason = t.exit_reason ?? "";
+		// Mirroring happens at creation only — editing touches this row alone.
+		formMirrorAccountIds = [];
+		formMirrorQuantities = {};
 		tradeStep = 1;
 	}
 
@@ -771,7 +820,11 @@
 					exit_reason: formStatus === "closed" ? (formExitReason.trim() || null) : null,
 					strategy_ids: formStrategyIds,
 					mistake_ids: formStatus === "closed" ? formMistakeIds : [],
-					checklist_item_ids: formChecklistItemIds
+					checklist_item_ids: formChecklistItemIds,
+					mirror_accounts: mirrorPayload(
+						qty,
+						formStatus === "closed" ? (num(formPnl) ?? 0) : 0
+					)
 				});
 				if (formScreenshotFile && created?.id) {
 					const screenshotUrl = await uploadTradeScreenshot(session.user.id, created.id, formScreenshotFile);
@@ -1303,6 +1356,51 @@
 									{/if}
 								</p>
 							</div>
+						</section>
+					{/if}
+
+					{#if !editingTradeId && mirrorCandidates.length > 0}
+						<!-- Copytrading: log the same decision on other accounts -->
+						<section class="space-y-3 border-t pt-4">
+							<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+								Also log to
+							</h3>
+							<p class="text-[11px] text-muted-foreground leading-snug">
+								Pick the other accounts you copied this trade to. Each gets its own row, so
+								per-account P&amp;L stays correct, but they're linked as one decision — cross-account
+								stats count it once instead of once per account.
+							</p>
+							<MultiSelect
+								bind:selected={formMirrorAccountIds}
+								options={mirrorCandidates.map((a) => ({ value: a.id, label: a.name }))}
+								placeholder="No other accounts"
+								emptyText="No other accounts."
+							/>
+							{#if formMirrorAccountIds.length > 0}
+								<div class="space-y-2">
+									{#each formMirrorAccountIds as id (id)}
+										{@const acct = mirrorCandidates.find((a) => a.id === id)}
+										<div class="flex items-center gap-3">
+											<span class="flex-1 truncate text-xs">{acct?.name ?? id}</span>
+											<Input
+												value={formMirrorQuantities[id] ?? ""}
+												oninput={(e) =>
+													(formMirrorQuantities = {
+														...formMirrorQuantities,
+														[id]: e.currentTarget.value
+													})}
+												inputmode="decimal"
+												placeholder={formQuantity || "qty"}
+												class="h-8 w-24 rounded-md text-xs"
+											/>
+										</div>
+									{/each}
+								</div>
+								<p class="text-[11px] text-muted-foreground leading-snug">
+									Leave a size blank to match the primary. P&amp;L and commission scale with size —
+									edit the individual rows afterwards if a fill diverged.
+								</p>
+							{/if}
 						</section>
 					{/if}
 

@@ -23,6 +23,8 @@
 	let session = $state<{ user: { id: string } } | null>(null);
 	let loading = $state(true);
 	let perAccount = $state<AccountStats[]>([]);
+	/** Every closed row across all accounts, tagged with its copytrade group. */
+	let closedRows = $state<{ group: string; pnl: number }[]>([]);
 
 	type AccountStats = {
 		id: string;
@@ -111,13 +113,25 @@
 					});
 					const result = await res.json();
 					const trades: Trade[] = result.success ? (result.data ?? []) : [];
-					return summarize(acct.id, acct.name, acct.account_type, trades);
+					return {
+						stats: summarize(acct.id, acct.name, acct.account_type, trades),
+						closed: trades
+							.filter((t) => t.status === "closed")
+							.map((t) => ({
+								// A mirrored trade shares its group id across accounts; an
+								// unmirrored one is a group of one, keyed by its own id.
+								group: t.trade_group_id ?? `solo:${t.id}`,
+								pnl: num(t.pnl) ?? 0,
+							})),
+					};
 				})
 			);
-			perAccount = results.sort((a, b) => b.netPnl - a.netPnl);
+			perAccount = results.map((r) => r.stats).sort((a, b) => b.netPnl - a.netPnl);
+			closedRows = results.flatMap((r) => r.closed);
 		} catch (e) {
 			console.error("Failed to load cross-account data", e);
 			perAccount = [];
+			closedRows = [];
 		} finally {
 			loading = false;
 		}
@@ -146,9 +160,30 @@
 			},
 			{ netPnl: 0, closedCount: 0, wins: 0, total: 0 }
 		);
+		/**
+		 * Row-level counts double-count copytraded decisions: a setup mirrored to
+		 * five accounts lands as five rows that win or lose together, so it casts
+		 * five votes in a row-level win rate while a single-account setup casts one.
+		 * Collapse each group to one decision — P&L summed across its accounts,
+		 * because that is the real money the decision made — and report win rate
+		 * off those. Net P&L is unaffected: summing rows and summing groups of rows
+		 * give the same total.
+		 */
+		const byGroup = new Map<string, number>();
+		for (const r of closedRows) {
+			byGroup.set(r.group, (byGroup.get(r.group) ?? 0) + r.pnl);
+		}
+		let decisionWins = 0;
+		for (const pnl of byGroup.values()) if (pnl > 0) decisionWins++;
+		const decisions = byGroup.size;
+
 		return {
 			...t,
 			winRate: t.closedCount > 0 ? t.wins / t.closedCount : null,
+			decisions,
+			decisionWinRate: decisions > 0 ? decisionWins / decisions : null,
+			/** True once any decision spans more than one account. */
+			hasMirrored: decisions > 0 && decisions < t.closedCount,
 			accounts: perAccount.length,
 		};
 	});
@@ -229,12 +264,26 @@
 				<div class="rounded-md border bg-background p-4">
 					<div class="text-xs text-muted-foreground">Total trades</div>
 					<div class="mt-1 text-2xl font-semibold tabular-nums">{totals.total}</div>
+					{#if totals.hasMirrored}
+						<div class="mt-1 text-[11px] text-muted-foreground tabular-nums">
+							{totals.decisions} distinct {totals.decisions === 1 ? "decision" : "decisions"}
+						</div>
+					{/if}
 				</div>
 				<div class="rounded-md border bg-background p-4">
 					<div class="text-xs text-muted-foreground">Combined win rate</div>
-					<div class="mt-1 text-2xl font-semibold tabular-nums">
-						{totals.winRate == null ? "—" : `${Math.round(totals.winRate * 100)}%`}
-					</div>
+					{#if totals.hasMirrored}
+						<div class="mt-1 text-2xl font-semibold tabular-nums">
+							{totals.decisionWinRate == null ? "—" : `${Math.round(totals.decisionWinRate * 100)}%`}
+						</div>
+						<div class="mt-1 text-[11px] text-muted-foreground tabular-nums">
+							per decision · {totals.winRate == null ? "—" : `${Math.round(totals.winRate * 100)}%`} per row
+						</div>
+					{:else}
+						<div class="mt-1 text-2xl font-semibold tabular-nums">
+							{totals.winRate == null ? "—" : `${Math.round(totals.winRate * 100)}%`}
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -352,7 +401,18 @@
 	headlinePnl={totals.netPnl}
 	stats={[
 		{ label: "Accounts", value: String(totals.accounts) },
-		{ label: "Total trades", value: String(totals.total) },
-		{ label: "Win rate", value: totals.winRate == null ? "—" : `${Math.round(totals.winRate * 100)}%` },
+		// Share the per-decision figures when copytrading is in play — a row-level
+		// count would overstate both the sample size and the win rate.
+		{
+			label: totals.hasMirrored ? "Decisions" : "Total trades",
+			value: String(totals.hasMirrored ? totals.decisions : totals.total),
+		},
+		{
+			label: "Win rate",
+			value: (() => {
+				const wr = totals.hasMirrored ? totals.decisionWinRate : totals.winRate;
+				return wr == null ? "—" : `${Math.round(wr * 100)}%`;
+			})(),
+		},
 	]}
 />

@@ -34,6 +34,22 @@ export type TradeCreatePayload = {
     strategy_ids?: string[];
     mistake_ids?: string[];
     checklist_item_ids?: string[];
+    /**
+     * Copytrading: additional accounts to log this same decision against. Each
+     * becomes its own trade row sharing a `trade_group_id` with the primary, so
+     * cross-account aggregates can count the decision once. Only `quantity`,
+     * `pnl`, `commission` and `highest_unrealized_profit` may differ per account;
+     * omit a field to inherit the primary's value.
+     */
+    mirror_accounts?: TradeMirrorInput[];
+};
+
+export type TradeMirrorInput = {
+    account_id: string;
+    quantity?: number | null;
+    pnl?: number | null;
+    commission?: number | null;
+    highest_unrealized_profit?: number | null;
 };
 
 export interface Trade {
@@ -69,6 +85,8 @@ export interface Trade {
     updated_at: string;
     is_backtest: boolean;
     backtest_session_id: string | null;
+    /** Shared by mirrored (copytraded) rows; null when the trade stands alone. */
+    trade_group_id: string | null;
     strategy_ids?: string[];
     mistake_ids?: string[];
     checklist_item_ids?: string[];
