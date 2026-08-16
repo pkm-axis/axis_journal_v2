@@ -311,7 +311,9 @@
 							<span>{selectedAccount?.name ?? "Pick an account"}</span>
 						</Select.Trigger>
 						<Select.Content class="rounded-md">
-							{#each accountStore.accounts as a (a.id)}
+							<!-- Projecting growth on a retired account is meaningless, so this
+							     picker is live accounts only. -->
+							{#each accountStore.activeAccounts as a (a.id)}
 								<Select.Item value={a.id} class="cursor-pointer">
 									<div class="flex flex-col">
 										<span>{a.name}</span>
@@ -319,7 +321,7 @@
 									</div>
 								</Select.Item>
 							{:else}
-								<div class="px-2 py-3 text-center text-xs text-muted-foreground">No accounts yet.</div>
+								<div class="px-2 py-3 text-center text-xs text-muted-foreground">No active accounts.</div>
 							{/each}
 						</Select.Content>
 					</Select.Root>

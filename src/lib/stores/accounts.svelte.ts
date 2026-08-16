@@ -8,10 +8,27 @@ function readActiveAccountId(): string | null {
     return localStorage.getItem(ACTIVE_ACCOUNT_KEY);
 }
 
+/**
+ * Account lifecycle. Anything other than "active" is archived: hidden from the
+ * switcher and pickers, but still counted in cost totals and still available in
+ * history. See 20260816000100_account_status.sql.
+ */
+export type AccountStatus = "active" | "breached" | "passed" | "closed";
+
+export const ACCOUNT_STATUS_LABELS: Record<AccountStatus, string> = {
+    active: "Active",
+    breached: "Breached",
+    passed: "Passed",
+    closed: "Closed"
+};
+
 export interface Account {
     id: string;
     name: string;
     account_type: string;
+    /** Absent on rows written before the status migration; treat as "active". */
+    status?: AccountStatus;
+    status_changed_at?: string | null;
     logo?: unknown;
     starting_balance?: number | null;
     prop_firm_name?: string | null;
@@ -22,7 +39,6 @@ export interface Account {
     prop_firm_consistency_rule?: string | null;
     prop_firm_max_contracts?: string | null;
     prop_firm_drawdown_type?: "eod" | "intraday" | "static" | null;
-    challenge_cost?: number | null;
     profit_split?: number | null;
     parent_account_id?: string | null;
 }
@@ -38,6 +54,17 @@ function createAccountStore() {
         },
         get accounts() {
             return accounts;
+        },
+        /**
+         * Accounts still being traded. The switcher and every account picker use
+         * this; settings and any cost or history view use `accounts` so archived
+         * accounts keep contributing their spend.
+         */
+        get activeAccounts() {
+            return accounts.filter((a) => (a.status ?? "active") === "active");
+        },
+        get archivedAccounts() {
+            return accounts.filter((a) => (a.status ?? "active") !== "active");
         },
         get activeAccountId() {
             return activeAccountId;
@@ -126,6 +153,20 @@ function createAccountStore() {
             const result = await response.json();
             if (!result.success) throw new Error(result.message ?? "Failed to update account");
             await accountStore.getAllAccounts(supabase);
+        },
+        /**
+         * Archive or restore. Sent on its own so the API's graduated-account lock
+         * lets it through — retiring an account is a lifecycle change, not an edit.
+         */
+        setStatus: async (supabase: SupabaseClient, id: string, status: AccountStatus) => {
+            await accountStore.updateAccount(supabase, id, { status });
+            // Don't leave the sidebar pointed at an account that just left the list.
+            if (status !== "active" && activeAccountId === id) {
+                const next = accounts.find(
+                    (a) => a.id !== id && (a.status ?? "active") === "active"
+                );
+                accountStore.setActiveAccountId(next?.id ?? null);
+            }
         },
         deleteAccount: async (supabase: SupabaseClient, id: string) => {
             const token = await getAuthToken(supabase);

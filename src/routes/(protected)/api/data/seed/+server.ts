@@ -197,7 +197,6 @@ async function seedAccounts(supabase: SupabaseClient, uid: string) {
 			prop_firm_daily_loss_limit: 1000,
 			prop_firm_consistency_rule: "30%",
 			prop_firm_max_contracts: "4 minis / 40 micros",
-			challenge_cost: 137,
 		})
 		.select("id")
 		.single();
@@ -225,21 +224,40 @@ async function seedAccounts(supabase: SupabaseClient, uid: string) {
 		.single();
 	if (e2) throw new Error("Apex funded: " + e2.message);
 
-	const { error: e3 } = await supabase.schema("trading").from("accounts").insert({
-		user_id: uid,
-		name: "Topstep 150K — Evaluation",
-		account_type: "prop firm",
-		starting_balance: 150000,
-		prop_firm_name: "Topstep",
-		prop_firm_type: "evaluation",
-		prop_firm_profit_target: 9000,
-		prop_firm_max_drawdown: 4500,
-		prop_firm_daily_loss_limit: 2000,
-		prop_firm_consistency_rule: "30%",
-		prop_firm_max_contracts: "10 minis",
-		challenge_cost: 375,
-	});
+	const { data: topstepAccount, error: e3 } = await supabase
+		.schema("trading")
+		.from("accounts")
+		.insert({
+			user_id: uid,
+			name: "Topstep 150K — Evaluation",
+			account_type: "prop firm",
+			starting_balance: 150000,
+			prop_firm_name: "Topstep",
+			prop_firm_type: "evaluation",
+			prop_firm_profit_target: 9000,
+			prop_firm_max_drawdown: 4500,
+			prop_firm_daily_loss_limit: 2000,
+			prop_firm_consistency_rule: "30%",
+			prop_firm_max_contracts: "10 minis",
+		})
+		.select("id")
+		.single();
 	if (e3) throw new Error("Topstep eval: " + e3.message);
+
+	/**
+	 * Account costs live in the expense ledger, not accounts.challenge_cost — see
+	 * 20260816000200_account_expenses.sql. Seeding the column instead would leave
+	 * the Expenses page reading $0 against accounts that visibly cost money.
+	 */
+	// incurred_on is a date, not a timestamp — trim dAgo's ISO output to YYYY-MM-DD.
+	const dayAgo = (d: number) => dAgo(d).slice(0, 10);
+	const { error: eExp } = await supabase.schema("trading").from("account_expenses").insert([
+		{ user_id: uid, account_id: evalAccount.id, kind: "challenge", amount: 137, incurred_on: dayAgo(90) },
+		{ user_id: uid, account_id: topstepAccount.id, kind: "challenge", amount: 375, incurred_on: dayAgo(60) },
+		{ user_id: uid, account_id: evalAccount.id, kind: "reset", amount: 80, incurred_on: dayAgo(75) },
+		{ user_id: uid, account_id: fundedAccount.id, kind: "platform", amount: 85, incurred_on: dayAgo(30) },
+	]);
+	if (eExp) throw new Error("Account expenses: " + eExp.message);
 
 	// Sample payout on the funded account.
 	await supabase.schema("trading").from("payouts").insert({

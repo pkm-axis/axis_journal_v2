@@ -1,12 +1,21 @@
 <script lang="ts">
+	import { onMount } from "svelte";
 	import { Button } from "$lib/components/ui/button";
 	import { Input } from "$lib/components/ui/input";
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
 	import * as Select from "$lib/components/ui/select/index.js";
 	import { Skeleton } from "$lib/components/ui/skeleton";
-	import { PencilSimpleIcon, PlusIcon, TrashIcon, LockSimpleIcon, ArrowCounterClockwiseIcon } from "phosphor-svelte";
+	import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
+	import { PencilSimpleIcon, PlusIcon, TrashIcon, LockSimpleIcon, ArrowCounterClockwiseIcon, ArchiveIcon, ArrowUUpLeftIcon } from "phosphor-svelte";
 	import { supabase } from "$lib/supabase/client";
-	import { accountStore, type Account } from "$lib/stores/accounts.svelte";
+	import {
+		accountStore,
+		ACCOUNT_STATUS_LABELS,
+		type Account,
+		type AccountStatus
+	} from "$lib/stores/accounts.svelte";
+	import { expenseStore } from "$lib/stores/expenses.svelte";
+	import { formatUsd } from "$lib/utils/format";
 	import { confirm } from "$lib/components/ui/confirm-dialog";
 	import { toast } from "svelte-sonner";
 
@@ -38,6 +47,8 @@
 	let formDrawdownType = $state<string>("eod");
 	let formChallengeCost = $state<string>("");
 	let formProfitSplit = $state<string>("");
+	/** Lets a past account be entered already retired, for backfilling history. */
+	let formStatus = $state<AccountStatus>("active");
 	let saving = $state(false);
 
 	const isPropFirm = $derived(formType === "prop firm");
@@ -68,6 +79,7 @@
 		formDrawdownType = "eod";
 		formChallengeCost = "";
 		formProfitSplit = "";
+		formStatus = "active";
 	}
 
 	function openCreate() {
@@ -91,7 +103,9 @@
 		formConsistencyRule = a.prop_firm_consistency_rule ?? "";
 		formMaxContracts = a.prop_firm_max_contracts ?? "";
 		formDrawdownType = a.prop_firm_drawdown_type ?? "eod";
-		formChallengeCost = a.challenge_cost != null ? String(a.challenge_cost) : "";
+		// Cost isn't editable here — it lives in the expense ledger once the account
+		// exists, and the field is hidden on edit.
+		formChallengeCost = "";
 		formProfitSplit = a.profit_split != null ? String(a.profit_split * 100) : "";
 		dialogOpen = true;
 	}
@@ -124,6 +138,9 @@
 				account_type: formType,
 				starting_balance: numOrNull(formStartingBalance),
 			};
+			// Only on create — archiving an existing account goes through the row
+			// action, which sends status on its own to clear the graduated lock.
+			if (!editingId && formStatus !== "active") payload.status = formStatus;
 			if (hasTradingRules) {
 				payload.prop_firm_profit_target = numOrNull(formProfitTarget);
 				payload.prop_firm_max_drawdown = numOrNull(formMaxDrawdown);
@@ -137,7 +154,9 @@
 			if (isPropFirm) {
 				payload.prop_firm_name = strOrNull(formPropFirmName);
 				payload.prop_firm_type = strOrNull(formPropFirmType);
-				payload.challenge_cost = numOrNull(formChallengeCost);
+				// Create only: the endpoint turns this into the account's first ledger
+				// entry. On edit, costs are managed on the Expenses page.
+				if (!editingId) payload.challenge_cost = numOrNull(formChallengeCost);
 				const rawSplit = parseFloat(String(formProfitSplit));
 				payload.profit_split = Number.isFinite(rawSplit) && rawSplit > 0 ? rawSplit / 100 : null;
 			}
@@ -192,6 +211,46 @@
 	function setActive(a: Account) {
 		accountStore.setActiveAccountId(a.id);
 	}
+
+	/**
+	 * Archiving retires an account without touching its trades, payouts or
+	 * expenses — that history is the reason to keep the row at all. It drops out
+	 * of the sidebar switcher; everything cost-related still counts it.
+	 */
+	async function archive(a: Account, status: AccountStatus) {
+		const label = ACCOUNT_STATUS_LABELS[status].toLowerCase();
+		const ok = await confirm({
+			title: `Mark "${a.name}" as ${label}?`,
+			description:
+				"It leaves the account switcher and stops appearing where you pick an account to trade on. Its trades, payouts and costs are kept and still count toward your totals. You can restore it later.",
+			confirmLabel: `Mark as ${label}`,
+		});
+		if (!ok) return;
+		try {
+			await accountStore.setStatus(supabase, a.id, status);
+			toast.success(`"${a.name}" archived as ${label}.`);
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : "Failed to archive.");
+		}
+	}
+
+	async function restore(a: Account) {
+		try {
+			await accountStore.setStatus(supabase, a.id, "active");
+			toast.success(`"${a.name}" restored.`);
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : "Failed to restore.");
+		}
+	}
+
+	function statusOf(a: Account): AccountStatus {
+		return a.status ?? "active";
+	}
+
+	// Archived rows show what the account cost, which is the reason they're kept.
+	onMount(() => {
+		void expenseStore.getAll(supabase);
+	});
 </script>
 
 <div class="space-y-4">
@@ -226,11 +285,19 @@
 				<div class="text-sm font-medium">No accounts yet</div>
 				<div class="mt-1 text-sm text-muted-foreground">Create your first account to start tracking trades.</div>
 			</div>
+		{:else if accountStore.activeAccounts.length === 0}
+			<div class="p-10 text-center">
+				<div class="text-sm font-medium">No active accounts</div>
+				<div class="mt-1 text-sm text-muted-foreground">
+					Every account is archived. Restore one below, or create a new one to start trading again.
+				</div>
+			</div>
 		{:else}
 			{@const grouped = (() => {
 				const propFirmMap = new Map<string, typeof accountStore.accounts>();
 				const others: typeof accountStore.accounts = [];
-				for (const a of accountStore.accounts) {
+				// Archived accounts get their own section below.
+				for (const a of accountStore.activeAccounts) {
 					if (a.account_type === "prop firm" && a.prop_firm_name) {
 						if (!propFirmMap.has(a.prop_firm_name)) propFirmMap.set(a.prop_firm_name, []);
 						propFirmMap.get(a.prop_firm_name)!.push(a);
@@ -299,6 +366,30 @@
 							>
 								<ArrowCounterClockwiseIcon size={16} />
 							</Button>
+							<DropdownMenu.Root>
+								<DropdownMenu.Trigger>
+									{#snippet child({ props })}
+										<Button
+											{...props}
+											variant="ghost"
+											size="icon"
+											class="h-8 w-8 cursor-pointer"
+											aria-label="Archive account"
+											title="Retire this account, keeping its history"
+										>
+											<ArchiveIcon size={16} class="text-muted-foreground" />
+										</Button>
+									{/snippet}
+								</DropdownMenu.Trigger>
+								<DropdownMenu.Content align="end" class="rounded-md">
+									<DropdownMenu.Item class="cursor-pointer" onSelect={() => archive(a, "breached")}>
+										Mark as breached
+									</DropdownMenu.Item>
+									<DropdownMenu.Item class="cursor-pointer" onSelect={() => archive(a, "closed")}>
+										Mark as closed
+									</DropdownMenu.Item>
+								</DropdownMenu.Content>
+							</DropdownMenu.Root>
 							<Button
 								variant="ghost"
 								size="icon"
@@ -317,6 +408,58 @@
 			</ul>
 		{/if}
 	</div>
+
+	{#if accountStore.archivedAccounts.length > 0}
+		<div class="rounded-md border bg-background">
+			<div class="flex items-center justify-between gap-2 border-b bg-muted/30 px-4 py-2">
+				<span class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+					Archived
+				</span>
+				<span class="text-[11px] text-muted-foreground">
+					Kept for cost and trade history · hidden from the switcher
+				</span>
+			</div>
+			<ul class="divide-y">
+				{#each accountStore.archivedAccounts as a (a.id)}
+					{@const spend = expenseStore.totalForAccount(a.id)}
+					<li class="flex items-center justify-between gap-3 px-4 py-3">
+						<div class="min-w-0">
+							<div class="flex items-center gap-2">
+								<div class="text-sm font-medium text-muted-foreground">{a.name}</div>
+								<span
+									class={[
+										"inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium capitalize",
+										statusOf(a) === "breached"
+											? "bg-rose-700/10 text-rose-700 dark:text-rose-400"
+											: "bg-muted text-muted-foreground",
+									]}
+								>
+									{ACCOUNT_STATUS_LABELS[statusOf(a)]}
+								</span>
+							</div>
+							<div class="mt-0.5 text-xs text-muted-foreground capitalize">
+								{a.account_type}{#if a.prop_firm_name} · {a.prop_firm_name}{/if}
+								{#if spend > 0}
+									<span class="tabular-nums normal-case"> · {formatUsd(spend)} spent</span>
+								{/if}
+							</div>
+						</div>
+						<div class="flex items-center gap-1">
+							<Button
+								variant="ghost"
+								size="sm"
+								class="h-8 cursor-pointer px-2 text-xs"
+								onclick={() => restore(a)}
+							>
+								<ArrowUUpLeftIcon size={14} />
+								Restore
+							</Button>
+						</div>
+					</li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
 </div>
 
 <Dialog.Root bind:open={dialogOpen}>
@@ -358,6 +501,25 @@
 							<Input bind:value={formStartingBalance} type="number" inputmode="decimal" placeholder="50000" class="rounded-md" />
 						</div>
 					</div>
+					{#if !editingId}
+						<div class="space-y-1.5">
+							<div class="text-xs font-medium">Status</div>
+							<Select.Root type="single" bind:value={formStatus}>
+								<Select.Trigger class="w-full cursor-pointer rounded-md">
+									<span>{ACCOUNT_STATUS_LABELS[formStatus]}</span>
+								</Select.Trigger>
+								<Select.Content class="rounded-md">
+									{#each Object.entries(ACCOUNT_STATUS_LABELS) as [value, label] (value)}
+										<Select.Item {value} class="cursor-pointer">{label}</Select.Item>
+									{/each}
+								</Select.Content>
+							</Select.Root>
+							<p class="text-[11px] leading-snug text-muted-foreground">
+								Recording a past account? Create it already breached or closed — it stays out
+								of the switcher, but its trades and costs still count.
+							</p>
+						</div>
+					{/if}
 				</div>
 			</section>
 
@@ -440,12 +602,23 @@
 					<h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
 						{isFunded ? "Payout" : "Cost"}
 					</h3>
-					{#if !isFunded}
+					{#if !isFunded && !editingId}
 						<div class="space-y-1.5">
 							<div class="text-xs font-medium">Challenge cost ($)</div>
 							<Input bind:value={formChallengeCost} type="number" inputmode="decimal" placeholder="e.g. 149" class="rounded-md" />
-							<p class="text-[11px] text-muted-foreground">What you paid for this evaluation. Used to calculate ROI and break-even.</p>
+							<p class="text-[11px] text-muted-foreground">
+								What you paid for this evaluation. Recorded as the account's first expense —
+								add resets and monthly fees on the Expenses page.
+							</p>
 						</div>
+					{:else if !isFunded}
+						<!-- Costs live in the expense ledger once the account exists, so editing
+						     a single number here would write a column nothing reads. -->
+						<p class="text-[11px] leading-snug text-muted-foreground">
+							Costs for this account are tracked on the
+							<a href="/analytics/expenses" class="text-primary hover:underline">Expenses</a>
+							page, where resets and recurring fees can be recorded too.
+						</p>
 					{:else}
 						<div class="space-y-1.5">
 							<div class="text-xs font-medium">Profit split (%)</div>

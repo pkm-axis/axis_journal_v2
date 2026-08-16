@@ -18,7 +18,7 @@
 	import { toast } from "svelte-sonner";
 	import { supabase } from "$lib/supabase/client";
 	import { tradeStore, type TradeExecutionInput } from "$lib/stores/trades.svelte";
-	import { accountStore } from "$lib/stores/accounts.svelte";
+	import { accountStore, type Account } from "$lib/stores/accounts.svelte";
 	import { instrumentStore, instrumentPnl } from "$lib/stores/instruments.svelte";
 	import { backtestSessionStore } from "$lib/stores/backtest-sessions.svelte";
 	import { strategyStore } from "$lib/stores/strategies.svelte";
@@ -128,12 +128,21 @@
 	let formMirrorAccountIds = $state<string[]>([]);
 	let formMirrorQuantities = $state<Record<string, string>>({});
 
-	/** Accounts eligible to mirror to: every other live account. */
+	/**
+	 * Accounts eligible to mirror to. Archived accounts stay in the list on
+	 * purpose: backfilling a past trade onto a blown account is exactly when you
+	 * need this. They're labelled so it's clear which are retired.
+	 */
 	const mirrorCandidates = $derived(
 		backtestSessionId
 			? []
 			: accountStore.accounts.filter((a) => a.id !== accountStore.activeAccountId)
 	);
+
+	function mirrorLabel(a: Account) {
+		const status = a.status ?? "active";
+		return status === "active" ? a.name : `${a.name} (${status})`;
+	}
 
 	/**
 	 * Build the per-account overrides for a mirrored trade. Everything that scales
@@ -1372,7 +1381,7 @@
 							</p>
 							<MultiSelect
 								bind:selected={formMirrorAccountIds}
-								options={mirrorCandidates.map((a) => ({ value: a.id, label: a.name }))}
+								options={mirrorCandidates.map((a) => ({ value: a.id, label: mirrorLabel(a) }))}
 								placeholder="No other accounts"
 								emptyText="No other accounts."
 							/>
@@ -1381,7 +1390,7 @@
 									{#each formMirrorAccountIds as id (id)}
 										{@const acct = mirrorCandidates.find((a) => a.id === id)}
 										<div class="flex items-center gap-3">
-											<span class="flex-1 truncate text-xs">{acct?.name ?? id}</span>
+											<span class="flex-1 truncate text-xs">{acct ? mirrorLabel(acct) : id}</span>
 											<Input
 												value={formMirrorQuantities[id] ?? ""}
 												oninput={(e) =>

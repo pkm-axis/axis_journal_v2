@@ -9,6 +9,7 @@
 	import BookOpenIcon from "@lucide/svelte/icons/book-open";
 	import ChartPieIcon from "@lucide/svelte/icons/chart-pie";
 	import FrameIcon from "@lucide/svelte/icons/frame";
+	import ReceiptIcon from "@lucide/svelte/icons/receipt";
 	import MapIcon from "@lucide/svelte/icons/map";
 	import Settings2Icon from "@lucide/svelte/icons/settings-2";
 	import SquareTerminalIcon from "@lucide/svelte/icons/square-terminal";
@@ -136,6 +137,11 @@
 				name: "Risk & Streaks",
 				url: "/analytics/risk-streaks",
 				icon: FrameIcon,
+			},
+			{
+				name: "Expenses",
+				url: "/analytics/expenses",
+				icon: ReceiptIcon,
 			},
 		],
 	};

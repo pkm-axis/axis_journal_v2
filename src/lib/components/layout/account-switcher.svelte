@@ -18,7 +18,14 @@
         accounts: Account[];
     }>();
 
-    let accountList = $derived(props.accounts ?? []);
+    /**
+     * Archived accounts (breached, passed, closed) stay out of the switcher —
+     * they're history, not somewhere you can log a trade. Settings still lists
+     * them, and their costs still count toward totals.
+     */
+    let accountList = $derived(
+        (props.accounts ?? []).filter((a: Account) => (a.status ?? "active") === "active")
+    );
 
     // Source of truth = the store. The switcher only displays it.
     const activeAccount = $derived<Account | null>(

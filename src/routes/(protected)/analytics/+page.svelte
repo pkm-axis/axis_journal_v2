@@ -10,6 +10,7 @@
 	import { strategyStore } from "$lib/stores/strategies.svelte";
 	import { mistakeStore } from "$lib/stores/mistakes.svelte";
 	import { payoutStore } from "$lib/stores/payouts.svelte";
+	import { expenseStore } from "$lib/stores/expenses.svelte";
 	import { Button } from "$lib/components/ui/button";
 	import { PnlShareDialog } from "$lib/components/pnl-share-sheet";
 	import { ShareNetworkIcon } from "phosphor-svelte";
@@ -153,6 +154,12 @@
 	};
 
 	const propFirmGroups = $derived.by(() => {
+		/**
+		 * Archived accounts stay in: their fees are spent money, and dropping them
+		 * would make every firm look cheaper than it was. Costs come from the
+		 * expense ledger, so resets and platform charges count alongside the
+		 * initial challenge fee.
+		 */
 		const propAccounts = accountStore.accounts.filter(
 			(a) => a.account_type === "prop firm" && a.prop_firm_name
 		);
@@ -162,7 +169,7 @@
 			if (!map.has(key)) map.set(key, { name: key, accounts: [], totalChallengeCost: 0, totalPayoutsReceived: 0, net: 0 });
 			const g = map.get(key)!;
 			g.accounts.push(a);
-			g.totalChallengeCost += a.challenge_cost ?? 0;
+			g.totalChallengeCost += expenseStore.totalForAccount(a.id);
 		}
 		for (const p of payoutStore.allPayouts) {
 			if (p.status !== "received") continue;
@@ -185,6 +192,7 @@
 		void accountStore.activeAccountId;
 		void tradeStore.getTradesByAccount(supabase);
 		void payoutStore.getAllPayouts(supabase);
+		void expenseStore.getAll(supabase);
 	});
 
 	const overviewStats = $derived.by(() => {

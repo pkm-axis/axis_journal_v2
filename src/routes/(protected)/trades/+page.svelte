@@ -21,6 +21,7 @@
 	import { tradeStore } from "$lib/stores/trades.svelte";
 	import { accountStore } from "$lib/stores/accounts.svelte";
 	import { payoutStore } from "$lib/stores/payouts.svelte";
+	import { expenseStore } from "$lib/stores/expenses.svelte";
 	import PnlShareDialog from "$lib/components/pnl-share-sheet/pnl-share-dialog.svelte";
 	import TradesList from "$lib/components/trades/trades-list.svelte";
 	import TradeStatsCards from "$lib/components/trades/trade-stats-cards.svelte";
@@ -148,8 +149,16 @@
 
 	const propFirmStats = $derived.by(() => {
 		if (!isFundedPropFirm || !activeAccount) return null;
-		const parentAccount = accountStore.accounts.find((a) => a.id === activeAccount.parent_account_id);
-		const cost = parentAccount?.challenge_cost;
+		/**
+		 * What this seat cost: the evaluation it graduated from plus anything spent
+		 * on the funded account itself (activation, resets, platform fees). Reading
+		 * the ledger rather than the old single `challenge_cost` column means resets
+		 * and recurring charges finally count toward break-even.
+		 */
+		const parentId = activeAccount.parent_account_id;
+		const cost =
+			expenseStore.totalForAccount(activeAccount.id) +
+			(parentId ? expenseStore.totalForAccount(parentId) : 0);
 		const totalPayouts = payoutStore.payouts.filter((p) => p.status === "received").reduce((sum, p) => sum + p.amount, 0);
 		const roi = cost && cost > 0 ? (totalPayouts / cost) * 100 : null;
 		const remaining = cost && cost > 0 ? Math.max(0, cost - totalPayouts) : null;
@@ -200,6 +209,9 @@
 		const account = accountStore.accounts.find((a) => a.id === id);
 		if (id && account?.account_type === "prop firm" && account?.parent_account_id) {
 			void payoutStore.getPayoutsByAccount(supabase, id);
+			// Break-even needs costs from both this account and the eval it came
+			// from, so fetch the whole ledger rather than filtering to one account.
+			void expenseStore.getAll(supabase);
 		} else {
 			payoutStore.clear();
 		}

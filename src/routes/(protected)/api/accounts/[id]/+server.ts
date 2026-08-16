@@ -10,18 +10,27 @@ export const PATCH: RequestHandler = async ({ params, request, locals: { supabas
 	const id = params.id?.trim();
 	if (!id) return json({ success: false, message: "Missing id" }, { status: 400 });
 
-	// Block edits to graduated evals (an account is "graduated" if another account points to it).
-	const { count } = await supabase
-		.schema("trading")
-		.from("accounts")
-		.select("id", { count: "exact", head: true })
-		.eq("user_id", user.id)
-		.eq("parent_account_id", id);
-	if ((count ?? 0) > 0) {
-		return json({ success: false, message: "This account has been graduated and is locked from editing." }, { status: 403 });
+	const body = (await request.json()) as Record<string, unknown>;
+
+	/**
+	 * Graduated evals are locked from editing, but archiving is a lifecycle
+	 * change rather than an edit — a graduated eval still needs to be closable.
+	 * So a patch that touches nothing but `status` passes the lock.
+	 */
+	const isStatusOnly = Object.keys(body).length === 1 && "status" in body;
+	if (!isStatusOnly) {
+		// An account is "graduated" if another account points to it.
+		const { count } = await supabase
+			.schema("trading")
+			.from("accounts")
+			.select("id", { count: "exact", head: true })
+			.eq("user_id", user.id)
+			.eq("parent_account_id", id);
+		if ((count ?? 0) > 0) {
+			return json({ success: false, message: "This account has been graduated and is locked from editing." }, { status: 403 });
+		}
 	}
 
-	const body = (await request.json()) as Record<string, unknown>;
 	const patch: Record<string, unknown> = {};
 	const stringFields = [
 		"name",
@@ -37,7 +46,7 @@ export const PATCH: RequestHandler = async ({ params, request, locals: { supabas
 		"prop_firm_profit_target",
 		"prop_firm_max_drawdown",
 		"prop_firm_daily_loss_limit",
-		"challenge_cost",
+		// challenge_cost is gone — costs live in trading.account_expenses.
 		"profit_split",
 	];
 	for (const f of stringFields) {
@@ -53,6 +62,18 @@ export const PATCH: RequestHandler = async ({ params, request, locals: { supabas
 		}
 	}
 
+	// Lifecycle. Validated here rather than relying on the CHECK constraint so a
+	// typo comes back as a clear message instead of a raw Postgres error.
+	const STATUSES = ["active", "breached", "passed", "closed"];
+	if ("status" in body) {
+		const next = typeof body.status === "string" ? body.status.trim() : "";
+		if (!STATUSES.includes(next)) {
+			return json({ success: false, message: `Status must be one of: ${STATUSES.join(", ")}.` }, { status: 400 });
+		}
+		patch.status = next;
+		patch.status_changed_at = new Date().toISOString();
+	}
+
 	// Null fields that aren't permitted for the target account_type, to satisfy CHECK constraint.
 	// Paper trading keeps profit target and max drawdown only.
 	if (patch.account_type === "paper trading") {
@@ -62,7 +83,6 @@ export const PATCH: RequestHandler = async ({ params, request, locals: { supabas
 		patch.prop_firm_consistency_rule = null;
 		patch.prop_firm_max_contracts = null;
 		patch.prop_firm_drawdown_type = null;
-		patch.challenge_cost = null;
 	} else if (patch.account_type && patch.account_type !== "prop firm") {
 		patch.prop_firm_name = null;
 		patch.prop_firm_type = null;
@@ -72,7 +92,6 @@ export const PATCH: RequestHandler = async ({ params, request, locals: { supabas
 		patch.prop_firm_consistency_rule = null;
 		patch.prop_firm_max_contracts = null;
 		patch.prop_firm_drawdown_type = null;
-		patch.challenge_cost = null;
 	}
 
 	if (Object.keys(patch).length === 0) {

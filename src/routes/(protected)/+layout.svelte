@@ -8,6 +8,8 @@
 	import type { Session } from "@supabase/supabase-js";
     import { accountStore } from "$lib/stores/accounts.svelte";
     import { tradeStore } from "$lib/stores/trades.svelte";
+    import { payoutStore } from "$lib/stores/payouts.svelte";
+    import { expenseStore } from "$lib/stores/expenses.svelte";
 
 	let { children } = $props();
 
@@ -36,8 +38,13 @@
 
                 // Detects user switch
                 if (currentUserId && currentUserId !== newUserId) {
+                    // Every store holding the previous user's rows must be dropped
+                    // here, or the incoming user sees stale data until each page
+                    // refetches.
                     accountStore.clear();
                     tradeStore.clear();
+                    payoutStore.clear();
+                    expenseStore.clear();
                 }
 
                 currentUserId = newUserId;

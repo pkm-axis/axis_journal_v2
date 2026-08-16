@@ -340,11 +340,16 @@
 								<span class="text-[10px] text-muted-foreground">Combined book</span>
 							</div>
 						</Select.Item>
+						<!-- This filters history, not where you trade, so archived accounts
+						     stay selectable — just labelled with how they ended. -->
 						{#each accountStore.accounts as a (a.id)}
+							{@const status = a.status ?? "active"}
 							<Select.Item value={a.id} class="cursor-pointer">
 								<div class="flex flex-col">
 									<span>{a.name}</span>
-									<span class="text-[10px] text-muted-foreground capitalize">{a.account_type ?? ""}</span>
+									<span class="text-[10px] text-muted-foreground capitalize">
+										{a.account_type ?? ""}{status === "active" ? "" : ` · ${status}`}
+									</span>
 								</div>
 							</Select.Item>
 						{/each}

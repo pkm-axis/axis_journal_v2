@@ -25,6 +25,7 @@
 	let perAccount = $state<AccountStats[]>([]);
 	/** Every closed row across all accounts, tagged with its copytrade group. */
 	let closedRows = $state<{ group: string; pnl: number }[]>([]);
+	let includeArchived = $state(false);
 
 	type AccountStats = {
 		id: string;
@@ -102,8 +103,18 @@
 			}
 			const token = await getAuthToken(supabase);
 
+			/**
+			 * Archived accounts are off by default: backfilling a stack of past
+			 * breached accounts would otherwise silently reshape every figure on
+			 * this page. Costs are unaffected — those live on the Expenses page and
+			 * always count archived accounts.
+			 */
+			const scope = includeArchived
+				? accountStore.accounts
+				: accountStore.activeAccounts;
+
 			const results = await Promise.all(
-				accountStore.accounts.map(async (acct) => {
+				scope.map(async (acct) => {
 					const res = await fetch(`/api/trades?accountId=${encodeURIComponent(acct.id)}`, {
 						credentials: "include",
 						headers: {
@@ -144,6 +155,8 @@
 
 	$effect(() => {
 		if (!session?.user?.id) return;
+		// Re-read the whole book when the archived scope changes.
+		void includeArchived;
 		untrack(() => {
 			void loadAll();
 		});
@@ -221,16 +234,28 @@
 					Side-by-side performance for every account you have.
 				</p>
 			</div>
-			<Button
-				variant="outline"
-				size="sm"
-				class="rounded-md cursor-pointer"
-				onclick={() => (shareOpen = true)}
-				disabled={loading || perAccount.length === 0}
-			>
-				<ShareNetworkIcon size={16} />
-				Share
-			</Button>
+			<div class="flex items-center gap-2">
+				{#if accountStore.archivedAccounts.length > 0}
+					<label class="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+						<input
+							type="checkbox"
+							bind:checked={includeArchived}
+							class="cursor-pointer accent-primary"
+						/>
+						Include archived
+					</label>
+				{/if}
+				<Button
+					variant="outline"
+					size="sm"
+					class="rounded-md cursor-pointer"
+					onclick={() => (shareOpen = true)}
+					disabled={loading || perAccount.length === 0}
+				>
+					<ShareNetworkIcon size={16} />
+					Share
+				</Button>
+			</div>
 		</div>
 
 		<!-- Aggregate stats -->
